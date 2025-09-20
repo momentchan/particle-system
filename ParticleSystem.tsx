@@ -143,23 +143,26 @@ const ParticleSystem = forwardRef<{
         const positionData = generateInitialPositions(particleParams.count, config?.position);
         const velocityData = generateInitialVelocities(particleParams.count, config?.velocity);
 
-        // Create shader materials
+        // Create shader materials with custom uniforms from behavior
+        const baseUniforms = {
+            time: { value: 0.0 },
+            delta: { value: 0.0 },
+            positionTex: { value: null },
+            velocityTex: { value: null }
+        };
+
         const positionMaterial = new THREE.ShaderMaterial({
             uniforms: {
-                time: { value: 0.0 },
-                delta: { value: 0.0 },
-                positionTex: { value: null },
-                velocityTex: { value: null }
+                ...baseUniforms,
+                ...finalBehavior.getPositionUniforms()
             },
             fragmentShader: finalPositionShader,
         });
 
         const velocityMaterial = new THREE.ShaderMaterial({
             uniforms: {
-                time: { value: 0.0 },
-                delta: { value: 0.0 },
-                positionTex: { value: null },
-                velocityTex: { value: null }
+                ...baseUniforms,
+                ...finalBehavior.getVelocityUniforms()
             },
             fragmentShader: finalVelocityShader,
         });
@@ -275,6 +278,18 @@ const ParticleSystem = forwardRef<{
             gpgpu.setUniform('velocityTex', 'time', state.clock.elapsedTime);
             gpgpu.setUniform('positionTex', 'delta', Math.min(delta, 1 / 30));
             gpgpu.setUniform('velocityTex', 'delta', Math.min(delta, 1 / 30));
+
+            // Update custom uniforms from behavior
+            const positionUniforms = finalBehavior.getPositionUniforms();
+            const velocityUniforms = finalBehavior.getVelocityUniforms();
+            
+            Object.entries(positionUniforms).forEach(([name, uniform]) => {
+                gpgpu.setUniform('positionTex', name, uniform.value);
+            });
+            
+            Object.entries(velocityUniforms).forEach(([name, uniform]) => {
+                gpgpu.setUniform('velocityTex', name, uniform.value);
+            });
 
             // Compute particle simulation
             gpgpu.compute();

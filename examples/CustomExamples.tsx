@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
     ParticleSystem,
     ParticlePositionConfig,
@@ -183,42 +183,54 @@ class FireBehavior extends ParticleBehavior {
 }
 
 export default function CustomExamples() {
+    // Memoize config objects to prevent recreation on every render
+    const spiralConfig = useMemo(() => ({
+        position: new SpiralPositionConfig(2.0, 1.0, 3.0),
+        velocity: new WaveVelocityConfig(0.5, 2.0),
+        color: new RainbowColorConfig(),
+        size: new DistanceBasedSizeConfig(0.5, 3)
+    }), []);
+
+    const fireConfig = useMemo(() => ({
+        position: new RandomPositionConfig({ x: [-1, 1], y: [-5, -4], z: [-1, 1] }),
+        velocity: new RandomVelocityConfig(0.1),
+        color: new GradientColorConfig([1, 0, 0], [1, 1, 0]),
+        size: new RandomSizeConfig([0.5, 1.5])
+    }), []);
+
+    const shaderBuilderConfig = useMemo(() => ({
+        position: new SpherePositionConfig(1.5, [0, 0, 0]),
+        velocity: new ZeroVelocityConfig(),
+        color: new GradientColorConfig([0, 0, 1], [1, 0, 1]),
+        size: new UniformSizeConfig(1)
+    }), []);
+
+    // Memoize behavior objects to prevent recreation on every render
+    const customWaveBehavior1 = useMemo(() => new CustomWaveBehavior(1.0, 0.5), []);
+    const fireBehavior = useMemo(() => new FireBehavior(), []);
+    const customWaveBehavior2 = useMemo(() => new CustomWaveBehavior(2.0, 0.8), []);
+
     return (
         <>
             {/* Example 1: Spiral particles with wave velocities and rainbow colors */}
             <ParticleSystem
                 count={256}
-                config={{
-                    position: new SpiralPositionConfig(2.0, 1.0, 3.0),
-                    velocity: new WaveVelocityConfig(0.5, 2.0),
-                    color: new RainbowColorConfig(),
-                    size: new DistanceBasedSizeConfig(0.5, 3)
-                }}
-                behavior={new CustomWaveBehavior(1.0, 0.5)}
+                config={spiralConfig}
+                behavior={customWaveBehavior1}
             />
 
             {/* Example 2: Fire behavior with custom shaders */}
             <ParticleSystem
                 count={512}
-                config={{
-                    position: new RandomPositionConfig({ x: [-1, 1], y: [-5, -4], z: [-1, 1] }),
-                    velocity: new RandomVelocityConfig(0.1),
-                    color: new GradientColorConfig([1, 0, 0], [1, 1, 0]),
-                    size: new RandomSizeConfig([0.5, 1.5])
-                }}
-                behavior={new FireBehavior()}
+                config={fireConfig}
+                behavior={fireBehavior}
             />
 
             {/* Example 3: Custom shader using ShaderBuilder */}
             <ParticleSystem
                 count={256}
-                config={{
-                    position: new SpherePositionConfig(1.5, [0, 0, 0]),
-                    velocity: new ZeroVelocityConfig(),
-                    color: new GradientColorConfig([0, 0, 1], [1, 0, 1]),
-                    size: new UniformSizeConfig(1)
-                }}
-                behavior={new CustomWaveBehavior(2.0, 0.8)}
+                config={shaderBuilderConfig}
+                behavior={customWaveBehavior2}
             />
         </>
     );

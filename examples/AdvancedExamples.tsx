@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import {
     ParticleSystem,
@@ -218,6 +218,24 @@ export default function AdvancedExamples() {
     const [mousePosition, setMousePosition] = useState<[number, number]>([0, 0]);
     const interactiveBehaviorRef = useRef<InteractiveBehavior>(new InteractiveBehavior());
 
+    // Memoize config objects to prevent recreation on every render
+    const interactiveConfig = useMemo(() => ({
+        position: new RandomPositionConfig({ x: [-5, 5], y: [-5, 5], z: [-2, 2] }),
+        velocity: new ZeroVelocityConfig(),
+        color: new GradientColorConfig([0, 1, 1], [1, 0, 1]),
+        size: new UniformSizeConfig(1)
+    }), []);
+
+    const morphingConfig = useMemo(() => ({
+        position: new RandomPositionConfig({ x: [-3, 3], y: [-3, 3], z: [-1, 1] }),
+        velocity: new ZeroVelocityConfig(),
+        color: new TimeBasedColorConfig([1, 0, 0], [0, 1, 0], [0, 0, 1]),
+        size: new UniformSizeConfig(0.8)
+    }), []);
+
+    // Memoize behavior objects to prevent recreation on every render
+    const morphingBehavior = useMemo(() => new MorphingBehavior(0.3), []);
+
     // Update mouse position for interactive behavior
     useFrame((state) => {
         if (interactiveBehaviorRef.current) {
@@ -233,25 +251,15 @@ export default function AdvancedExamples() {
             {/* Example 1: Interactive particles that follow mouse */}
             <ParticleSystem
                 count={256}
-                config={{
-                    position: new RandomPositionConfig({ x: [-5, 5], y: [-5, 5], z: [-2, 2] }),
-                    velocity: new ZeroVelocityConfig(),
-                    color: new GradientColorConfig([0, 1, 1], [1, 0, 1]),
-                    size: new UniformSizeConfig(1)
-                }}
+                config={interactiveConfig}
                 behavior={interactiveBehaviorRef.current}
             />
 
             {/* Example 2: Morphing behavior that changes over time */}
             <ParticleSystem
                 count={256}
-                config={{
-                    position: new RandomPositionConfig({ x: [-3, 3], y: [-3, 3], z: [-1, 1] }),
-                    velocity: new ZeroVelocityConfig(),
-                    color: new TimeBasedColorConfig([1, 0, 0], [0, 1, 0], [0, 0, 1]),
-                    size: new UniformSizeConfig(0.8)
-                }}
-                behavior={new MorphingBehavior(0.3)}
+                config={morphingConfig}
+                behavior={morphingBehavior}
             />
         </>
     );
