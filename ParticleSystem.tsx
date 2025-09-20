@@ -1,6 +1,6 @@
 'use client';
 
-import { forwardRef, useImperativeHandle, useRef, useMemo } from 'react';
+import { forwardRef, useImperativeHandle, useRef, useMemo, useEffect } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useControls } from 'leva';
 import * as THREE from 'three';
@@ -122,10 +122,16 @@ const ParticleSystem = forwardRef<{
         transparent: true,
     });
 
-    // Determine which shaders to use
-    const finalBehavior = behavior || new DefaultBehavior();
-    const finalPositionShader = positionShader || finalBehavior.getPositionShader();
-    const finalVelocityShader = velocityShader || finalBehavior.getVelocityShader();
+    // Determine which shaders to use (memoized to prevent recreation)
+    const finalBehavior = useMemo(() => behavior || new DefaultBehavior(), [behavior]);
+    const finalPositionShader = useMemo(() => 
+        positionShader || finalBehavior.getPositionShader(), 
+        [positionShader, finalBehavior]
+    );
+    const finalVelocityShader = useMemo(() => 
+        velocityShader || finalBehavior.getVelocityShader(), 
+        [velocityShader, finalBehavior]
+    );
 
     // Initialize GPGPU with useMemo
     const gpgpu = useMemo(() => {
@@ -170,10 +176,10 @@ const ParticleSystem = forwardRef<{
         gpgpu.init();
 
         return gpgpu;
-    }, [gl, particleParams.count, finalPositionShader, finalVelocityShader, config]);
+    }, [gl, particleParams.count, finalPositionShader, finalVelocityShader]);
 
-    // Create particle geometry and material
-    const { geometry, material } = useMemo(() => {
+    // Create particle geometry (stable, only recreates when count changes)
+    const geometry = useMemo(() => {
         const size = Math.sqrt(Math.floor(particleParams.count));
         const geometry = new THREE.BufferGeometry();
 
@@ -200,7 +206,12 @@ const ParticleSystem = forwardRef<{
         const sizes = generateInitialSizes(particleParams.count, config?.size);
         geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
-        const material = new THREE.ShaderMaterial({
+        return geometry;
+    }, [particleParams.count, config?.color, config?.size]);
+
+    // Create particle material (stable shader, only uniforms change)
+    const material = useMemo(() => {
+        return new THREE.ShaderMaterial({
             uniforms: {
                 positionTex: { value: null },
                 velocityTex: { value: null },
@@ -246,9 +257,15 @@ const ParticleSystem = forwardRef<{
             transparent: particleParams.transparent,
             vertexColors: true
         });
+    }, [particleParams.transparent]);
 
-        return { geometry, material };
-    }, [particleParams.count, particleParams.size, particleParams.opacity, particleParams.transparent, config]);
+    // Update material uniforms when particleParams change (without recreating material)
+    useEffect(() => {
+        if (material) {
+            material.uniforms.sizeMultiplier.value = particleParams.size;
+            material.uniforms.opacity.value = particleParams.opacity;
+        }
+    }, [material, particleParams.size, particleParams.opacity]);
 
     // Animation loop
     useFrame((state, delta) => {
@@ -269,8 +286,6 @@ const ParticleSystem = forwardRef<{
             material.uniforms.positionTex.value = positionTex;
             material.uniforms.velocityTex.value = velocityTex;
             material.uniforms.time.value = state.clock.elapsedTime;
-            material.uniforms.sizeMultiplier.value = particleParams.size;
-            material.uniforms.opacity.value = particleParams.opacity;
         }
     });
 
