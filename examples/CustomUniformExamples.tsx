@@ -13,12 +13,21 @@ import {
 
 // Custom behavior that demonstrates custom uniform usage
 class CustomUniformBehavior extends ParticleBehavior {
+    public uniforms: Record<string, any>;
+
     constructor(
         private waveSpeed: number = 1.0,
         private waveAmplitude: number = 0.5,
         private colorShift: number = 0.0
     ) {
         super();
+        
+        // Create uniforms once and store them
+        this.uniforms = {
+            waveSpeed: { value: this.waveSpeed },
+            waveAmplitude: { value: this.waveAmplitude },
+            colorShift: { value: this.colorShift }
+        };
     }
 
     getName(): string {
@@ -27,11 +36,7 @@ class CustomUniformBehavior extends ParticleBehavior {
 
     // Provide custom uniforms for the velocity shader
     getVelocityUniforms(): Record<string, any> {
-        return {
-            waveSpeed: { value: this.waveSpeed },
-            waveAmplitude: { value: this.waveAmplitude },
-            colorShift: { value: this.colorShift }
-        };
+        return this.uniforms;
     }
 
     getPositionShader(): string {
@@ -97,6 +102,8 @@ class CustomUniformBehavior extends ParticleBehavior {
 
 // Behavior with multiple custom uniforms
 class MultiUniformBehavior extends ParticleBehavior {
+    public uniforms: Record<string, any>;
+
     constructor(
         private spiralSpeed: number = 1.0,
         private spiralRadius: number = 2.0,
@@ -105,6 +112,15 @@ class MultiUniformBehavior extends ParticleBehavior {
         private centerY: number = 0.0
     ) {
         super();
+        
+        // Create uniforms once and store them
+        this.uniforms = {
+            spiralSpeed: { value: this.spiralSpeed },
+            spiralRadius: { value: this.spiralRadius },
+            noiseStrength: { value: this.noiseStrength },
+            centerX: { value: this.centerX },
+            centerY: { value: this.centerY }
+        };
     }
 
     getName(): string {
@@ -112,13 +128,7 @@ class MultiUniformBehavior extends ParticleBehavior {
     }
 
     getVelocityUniforms(): Record<string, any> {
-        return {
-            spiralSpeed: { value: this.spiralSpeed },
-            spiralRadius: { value: this.spiralRadius },
-            noiseStrength: { value: this.noiseStrength },
-            centerX: { value: this.centerX },
-            centerY: { value: this.centerY }
-        };
+        return this.uniforms;
     }
 
     getPositionShader(): string {
@@ -215,14 +225,14 @@ export default function CustomUniformExamples() {
         if (behaviorRef1.current) {
             // Update custom uniforms dynamically
             const time = state.clock.elapsedTime;
-            behaviorRef1.current.getVelocityUniforms().colorShift.value = Math.sin(time * 0.5) * 2.0;
+            behaviorRef1.current.uniforms.colorShift.value = Math.sin(time * 0.5) * 2.0;
         }
 
         if (behaviorRef2.current) {
             // Update center position for spiral effect
             const time = state.clock.elapsedTime;
-            behaviorRef2.current.getVelocityUniforms().centerX.value = Math.sin(time * 0.3) * 2.0;
-            behaviorRef2.current.getVelocityUniforms().centerY.value = Math.cos(time * 0.3) * 2.0;
+            behaviorRef2.current.uniforms.centerX.value = Math.sin(time * 0.3) * 2.0;
+            behaviorRef2.current.uniforms.centerY.value = Math.cos(time * 0.3) * 2.0;
         }
     });
 

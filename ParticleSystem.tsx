@@ -94,6 +94,7 @@ interface ParticleSystemProps {
     count?: number;
     config?: ParticleSystemConfig;
     behavior?: ParticleBehavior;
+    customMaterial?: THREE.Material | null;
     // Legacy support
     positionShader?: string;
     velocityShader?: string;
@@ -107,6 +108,7 @@ const ParticleSystem = forwardRef<{
     count = 1024,
     config,
     behavior,
+    customMaterial,
     // Legacy support
     positionShader,
     velocityShader,
@@ -333,7 +335,7 @@ const ParticleSystem = forwardRef<{
     }));
 
     return (
-        <points ref={meshRef} geometry={geometry} material={material} />
+        <points ref={meshRef} geometry={geometry} material={customMaterial || material} />
     );
 });
 
