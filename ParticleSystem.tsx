@@ -339,7 +339,8 @@ const ParticleSystem = forwardRef<{
     }));
 
     return (
-        <points ref={meshRef} geometry={geometry} material={customMaterial || material} />
+        <points 
+        ref={meshRef} geometry={geometry} material={customMaterial || material} frustumCulled={false} />
     );
 });
 
