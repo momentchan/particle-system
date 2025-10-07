@@ -320,6 +320,10 @@ const ParticleSystem = forwardRef<{
             }
             return null;
         },
+
+        getMeshRef: () => {
+            return meshRef.current;
+        },
         reset: () => {
             // Reset particles to initial state
             if (gpgpu) {
