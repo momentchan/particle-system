@@ -98,6 +98,7 @@ interface ParticleSystemProps {
     // Legacy support
     positionShader?: string;
     velocityShader?: string;
+    update?: boolean;
 }
 
 const ParticleSystem = forwardRef<{
@@ -112,6 +113,7 @@ const ParticleSystem = forwardRef<{
     // Legacy support
     positionShader,
     velocityShader,
+    update = true,
 }, ref) => {
     const { gl } = useThree();
     const meshRef = useRef<THREE.Points>(null);
@@ -274,7 +276,7 @@ const ParticleSystem = forwardRef<{
 
     // Animation loop
     useFrame((state, delta) => {
-        if (gpgpu) {
+        if (gpgpu && update) {
             // Update time uniforms
             gpgpu.setUniform('positionTex', 'time', state.clock.elapsedTime);
             gpgpu.setUniform('velocityTex', 'time', state.clock.elapsedTime);
