@@ -6,7 +6,7 @@ import { useControls } from 'leva';
 import * as THREE from 'three';
 import GPGPU from './lib/GPGPU';
 
-import { ParticleSystemConfig } from './config';
+import { ParticleSystemConfig, GridPositionConfig, ZeroVelocityConfig, UniformColorConfig, UniformSizeConfig } from './config';
 import { ParticleBehavior } from './behaviors';
 import { DefaultBehavior } from './behaviors';
 
@@ -17,10 +17,10 @@ const generateInitialPositions = (
 ): Float32Array => {
     const size = Math.floor(Math.sqrt(count));
     const data = new Float32Array(size * size * 4);
-    
+
     // Use default grid configuration if none provided
-    const positionConfig = config || new (require('./config').GridPositionConfig)();
-    
+    const positionConfig = config || new GridPositionConfig();
+
     for (let i = 0; i < size * size; i++) {
         const [x, y, z, age] = positionConfig.generatePosition(i, count, size);
         const index = i * 4;
@@ -29,7 +29,7 @@ const generateInitialPositions = (
         data[index + 2] = z;
         data[index + 3] = age;
     }
-    
+
     return data;
 };
 
@@ -39,10 +39,10 @@ const generateInitialVelocities = (
 ): Float32Array => {
     const size = Math.floor(Math.sqrt(count));
     const data = new Float32Array(size * size * 4);
-    
+
     // Use default zero velocity if none provided
-    const velocityConfig = config || new (require('./config').ZeroVelocityConfig)();
-    
+    const velocityConfig = config || new ZeroVelocityConfig();
+
     for (let i = 0; i < size * size; i++) {
         const [vx, vy, vz, unused] = velocityConfig.generateVelocity(i, count, size);
         const index = i * 4;
@@ -51,7 +51,7 @@ const generateInitialVelocities = (
         data[index + 2] = vz;
         data[index + 3] = unused;
     }
-    
+
     return data;
 };
 
@@ -60,17 +60,17 @@ const generateInitialColors = (
     config: any
 ): Float32Array => {
     const data = new Float32Array(count * 3);
-    
+
     // Use default white color if none provided
-    const colorConfig = config || new (require('./config').UniformColorConfig)();
-    
+    const colorConfig = config || new UniformColorConfig();
+
     for (let i = 0; i < count; i++) {
         const [r, g, b] = colorConfig.generateColor(i, count);
         data[i * 3] = r;
         data[i * 3 + 1] = g;
         data[i * 3 + 2] = b;
     }
-    
+
     return data;
 };
 
@@ -79,14 +79,14 @@ const generateInitialSizes = (
     config: any
 ): Float32Array => {
     const data = new Float32Array(count);
-    
+
     // Use default uniform size if none provided
-    const sizeConfig = config || new (require('./config').UniformSizeConfig)();
-    
+    const sizeConfig = config || new UniformSizeConfig();
+
     for (let i = 0; i < count; i++) {
         data[i] = sizeConfig.generateSize(i, count);
     }
-    
+
     return data;
 };
 
@@ -128,12 +128,12 @@ const ParticleSystem = forwardRef<{
 
     // Determine which shaders to use (memoized to prevent recreation)
     const finalBehavior = useMemo(() => behavior || new DefaultBehavior(), [behavior]);
-    const finalPositionShader = useMemo(() => 
-        positionShader || finalBehavior.getPositionShader(), 
+    const finalPositionShader = useMemo(() =>
+        positionShader || finalBehavior.getPositionShader(),
         [positionShader, finalBehavior]
     );
-    const finalVelocityShader = useMemo(() => 
-        velocityShader || finalBehavior.getVelocityShader(), 
+    const finalVelocityShader = useMemo(() =>
+        velocityShader || finalBehavior.getVelocityShader(),
         [velocityShader, finalBehavior]
     );
 
@@ -286,11 +286,11 @@ const ParticleSystem = forwardRef<{
             // Update custom uniforms from behavior
             const positionUniforms = finalBehavior.getPositionUniforms();
             const velocityUniforms = finalBehavior.getVelocityUniforms();
-            
+
             Object.entries(positionUniforms).forEach(([name, uniform]) => {
                 gpgpu.setUniform('positionTex', name, uniform.value);
             });
-            
+
             Object.entries(velocityUniforms).forEach(([name, uniform]) => {
                 gpgpu.setUniform('velocityTex', name, uniform.value);
             });
@@ -341,8 +341,8 @@ const ParticleSystem = forwardRef<{
     }));
 
     return (
-        <points 
-        ref={meshRef} geometry={geometry} material={customMaterial || material} frustumCulled={false} />
+        <points
+            ref={meshRef} geometry={geometry} material={customMaterial || material} frustumCulled={false} />
     );
 });
 
