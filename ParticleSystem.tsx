@@ -117,7 +117,7 @@ const ParticleSystem = forwardRef<{
 }, ref) => {
     const { gl } = useThree();
     const meshRef = useRef<THREE.Points>(null);
-
+    const timeRef = useRef(0);
     // Leva controls
     const particleParams = useControls('Particle System', {
         count: { value: count, min: 64, max: 4096, step: 64 },
@@ -277,11 +277,15 @@ const ParticleSystem = forwardRef<{
     // Animation loop
     useFrame((state, delta) => {
         if (gpgpu && update) {
+            const dt = Math.min(delta, 1 / 30);
+            const t = timeRef.current;
+            timeRef.current += dt;
+
             // Update time uniforms
-            gpgpu.setUniform('positionTex', 'time', state.clock.elapsedTime);
-            gpgpu.setUniform('velocityTex', 'time', state.clock.elapsedTime);
-            gpgpu.setUniform('positionTex', 'delta', Math.min(delta, 1 / 30));
-            gpgpu.setUniform('velocityTex', 'delta', Math.min(delta, 1 / 30));
+            gpgpu.setUniform('positionTex', 'time', t);
+            gpgpu.setUniform('velocityTex', 'time', t);
+            gpgpu.setUniform('positionTex', 'delta', dt);
+            gpgpu.setUniform('velocityTex', 'delta', dt);
 
             // Update custom uniforms from behavior
             const positionUniforms = finalBehavior.getPositionUniforms();
