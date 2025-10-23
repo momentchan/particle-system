@@ -118,9 +118,8 @@ const ParticleSystem = forwardRef<{
     const { gl } = useThree();
     const meshRef = useRef<THREE.Points>(null);
     const timeRef = useRef(0);
-    // Leva controls
+    // Leva controls (count is controlled by parent component)
     const particleParams = useControls('Particle System', {
-        count: { value: count, min: 64, max: 4096, step: 64 },
         size: { value: 0.1, min: 0.001, max: 0.5, step: 0.001 },
         opacity: { value: 0.8, min: 0.0, max: 1.0, step: 0.01 },
         transparent: true,
@@ -139,13 +138,13 @@ const ParticleSystem = forwardRef<{
 
     // Initialize GPGPU with useMemo
     const gpgpu = useMemo(() => {
-        const size = Math.floor(Math.sqrt(particleParams.count));
+        const size = Math.floor(Math.sqrt(count));
 
         const gpgpu = new GPGPU(gl, size, size);
 
         // Generate initial data using class-based configuration
-        const positionData = generateInitialPositions(particleParams.count, config?.position);
-        const velocityData = generateInitialVelocities(particleParams.count, config?.velocity);
+        const positionData = generateInitialPositions(count, config?.position);
+        const velocityData = generateInitialVelocities(count, config?.velocity);
 
         // Create shader materials with custom uniforms from behavior
         const baseUniforms = {
@@ -183,16 +182,16 @@ const ParticleSystem = forwardRef<{
         gpgpu.init();
 
         return gpgpu;
-    }, [gl, particleParams.count, finalPositionShader, finalVelocityShader]);
+    }, [gl, count, finalPositionShader, finalVelocityShader]);
 
     // Create particle geometry (stable, only recreates when count changes)
     const geometry = useMemo(() => {
-        const size = Math.sqrt(Math.floor(particleParams.count));
+        const size = Math.sqrt(Math.floor(count));
         const geometry = new THREE.BufferGeometry();
 
         // Create UV coordinates for texture sampling
-        const uvs = new Float32Array(particleParams.count * 2);
-        for (let i = 0; i < particleParams.count; i++) {
+        const uvs = new Float32Array(count * 2);
+        for (let i = 0; i < count; i++) {
             const x = (i % size) / size;
             const y = Math.floor(i / size) / size;
             uvs[i * 2] = x;
@@ -202,19 +201,19 @@ const ParticleSystem = forwardRef<{
         geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
 
         // Create dummy positions (will be updated in vertex shader)
-        const positions = new Float32Array(particleParams.count * 3);
+        const positions = new Float32Array(count * 3);
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
         // Generate initial colors using class-based configuration
-        const colors = generateInitialColors(particleParams.count, config?.color);
+        const colors = generateInitialColors(count, config?.color);
         geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
         // Generate initial sizes using class-based configuration
-        const sizes = generateInitialSizes(particleParams.count, config?.size);
+        const sizes = generateInitialSizes(count, config?.size);
         geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
         return geometry;
-    }, [particleParams.count, config?.color, config?.size]);
+    }, [count, config?.color, config?.size]);
 
     // Create particle material (stable shader, only uniforms change)
     const material = useMemo(() => {
@@ -334,8 +333,8 @@ const ParticleSystem = forwardRef<{
             // Reset particles to initial state
             if (gpgpu) {
                 // Generate fresh initial data using class-based configuration
-                const positionData = generateInitialPositions(particleParams.count, config?.position);
-                const velocityData = generateInitialVelocities(particleParams.count, config?.velocity);
+                const positionData = generateInitialPositions(count, config?.position);
+                const velocityData = generateInitialVelocities(count, config?.velocity);
 
                 // Note: GPGPU doesn't have a direct reset method, so we'd need to reinitialize
                 // For now, this is a placeholder
