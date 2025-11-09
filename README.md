@@ -209,20 +209,20 @@ function App() {
 }
 ```
 
-### Custom Configurations
+### Advanced Examples
 
 ```tsx
-import { CustomExamples } from './examples/CustomExamples';
+import AdvancedExamples from './examples/AdvancedExamples';
 
 function App() {
-  return <CustomExamples />;
+  return <AdvancedExamples />;
 }
 ```
 
 ### Advanced Features
 
 ```tsx
-import { AdvancedExamples } from './examples/AdvancedExamples';
+import AdvancedExamples from './examples/AdvancedExamples';
 
 function App() {
   return <AdvancedExamples />;

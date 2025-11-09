@@ -5,12 +5,14 @@ import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import {
     ParticleSystem,
+    ParticlePositionConfig,
     ParticleColorConfig,
     ParticleBehavior,
     RandomPositionConfig,
     ZeroVelocityConfig,
     GradientColorConfig,
-    UniformSizeConfig
+    UniformSizeConfig,
+    RandomVelocityConfig
 } from '../index';
 
 // Interactive behavior that responds to mouse position using the new composition system
@@ -111,6 +113,115 @@ class MorphingBehavior extends ParticleBehavior {
     }
 }
 
+// Custom configuration: Spiral positioning
+class SpiralPositionConfig extends ParticlePositionConfig {
+    constructor(
+        private radius: number = 2.0,
+        private height: number = 1.0,
+        private turns: number = 3.0
+    ) {
+        super();
+    }
+
+    generatePosition(index: number, totalCount: number): [number, number, number, number] {
+        const t = index / totalCount;
+        const angle = t * this.turns * Math.PI * 2;
+        const r = t * this.radius;
+        const x = Math.cos(angle) * r;
+        const y = t * this.height - this.height / 2;
+        const z = Math.sin(angle) * r;
+        return [x, y, z, 0.0];
+    }
+}
+
+// Custom behavior with dynamic uniforms
+class CustomUniformBehavior extends ParticleBehavior {
+    public uniforms: Record<string, any>;
+
+    constructor(
+        private waveSpeed: number = 1.0,
+        private waveAmplitude: number = 0.5,
+        private colorShift: number = 0.0
+    ) {
+        super();
+        
+        this.uniforms = {
+            waveSpeed: { value: this.waveSpeed },
+            waveAmplitude: { value: this.waveAmplitude },
+            colorShift: { value: this.colorShift }
+        };
+    }
+
+    getName(): string {
+        return 'Custom Uniform';
+    }
+
+    protected getBoundaryConfig() {
+        return {
+            type: 'wrap' as const,
+            min: [-5.0, -5.0, -5.0] as [number, number, number],
+            max: [5.0, 5.0, 5.0] as [number, number, number]
+        };
+    }
+
+    getVelocityUniforms(): Record<string, any> {
+        return this.uniforms;
+    }
+
+    protected getVelocityUpdateLogic(): string {
+        return /*glsl*/ `
+            // Use custom uniforms to create wave motion
+            float wave = sin(pos.x * waveSpeed + time) * waveAmplitude;
+            vel.y = wave;
+            
+            // Use colorShift uniform to affect horizontal movement
+            vel.x = sin(time * 0.5 + colorShift) * 0.1;
+            
+            // Add some vertical oscillation
+            vel.z = cos(pos.y * 0.5 + time * 0.3) * 0.05;
+            
+            // Damping
+            vel.xyz *= 0.98;
+        `;
+    }
+}
+
+// Custom behavior with fire-like motion
+class FireBehavior extends ParticleBehavior {
+    getName(): string {
+        return 'Fire';
+    }
+
+    protected getPositionUpdateLogic(): string {
+        return /*glsl*/ `
+            pos.xyz += vel.xyz * delta;
+            
+            // Reset particles that go too high
+            if (pos.y > 5.0) {
+                pos.y = -5.0;
+                pos.x = (uv.x - 0.5) * 2.0;
+                pos.z = (uv.y - 0.5) * 2.0;
+            }
+        `;
+    }
+
+    protected getVelocityUpdateLogic(): string {
+        return /*glsl*/ `
+            // Fire-like upward motion with turbulence
+            vel.y += 0.1 * delta;
+            
+            // Add turbulence
+            float noise1 = sin(pos.x * 0.1 + time) * 0.05;
+            float noise2 = cos(pos.z * 0.1 + time * 0.7) * 0.05;
+            vel.x += noise1;
+            vel.z += noise2;
+            
+            // Damping
+            vel.xyz *= 0.98;
+        `;
+    }
+}
+
 // Color configuration that changes over time
 class TimeBasedColorConfig extends ParticleColorConfig {
     constructor(
@@ -151,6 +262,7 @@ class TimeBasedColorConfig extends ParticleColorConfig {
 
 export default function AdvancedExamples() {
     const interactiveBehaviorRef = useRef<InteractiveBehavior>(new InteractiveBehavior());
+    const customUniformBehaviorRef = useRef<CustomUniformBehavior>(new CustomUniformBehavior(1.5, 0.8, 0.0));
 
     // Memoize config objects to prevent recreation on every render
     const interactiveConfig = useMemo(() => ({
@@ -158,6 +270,20 @@ export default function AdvancedExamples() {
         velocity: new ZeroVelocityConfig(),
         color: new GradientColorConfig([0, 1, 1], [1, 0, 1]),
         size: new UniformSizeConfig(1)
+    }), []);
+
+    const spiralConfig = useMemo(() => ({
+        position: new SpiralPositionConfig(2.0, 1.0, 3.0),
+        velocity: new ZeroVelocityConfig(),
+        color: new GradientColorConfig([1, 0, 0], [0, 1, 0]),
+        size: new UniformSizeConfig(1)
+    }), []);
+
+    const fireConfig = useMemo(() => ({
+        position: new RandomPositionConfig({ x: [-1, 1], y: [-5, -4], z: [-1, 1] }),
+        velocity: new RandomVelocityConfig(0.1),
+        color: new GradientColorConfig([1, 0, 0], [1, 1, 0]),
+        size: new UniformSizeConfig(0.8)
     }), []);
 
     const morphingConfig = useMemo(() => ({
@@ -169,14 +295,21 @@ export default function AdvancedExamples() {
 
     // Memoize behavior objects to prevent recreation on every render
     const morphingBehavior = useMemo(() => new MorphingBehavior(0.3), []);
+    const fireBehavior = useMemo(() => new FireBehavior(), []);
 
-    // Update mouse position for interactive behavior
+    // Update uniforms dynamically
     useFrame((state) => {
+        // Update mouse position for interactive behavior
         if (interactiveBehaviorRef.current) {
-            // Convert mouse position to normalized coordinates
             const x = (state.mouse.x + 1) / 2;
             const y = (state.mouse.y + 1) / 2;
             interactiveBehaviorRef.current.updateMousePosition(x, y);
+        }
+
+        // Update custom uniforms dynamically
+        if (customUniformBehaviorRef.current) {
+            const time = state.clock.elapsedTime;
+            customUniformBehaviorRef.current.uniforms.colorShift.value = Math.sin(time * 0.5) * 2.0;
         }
     });
 
@@ -189,7 +322,21 @@ export default function AdvancedExamples() {
                 behavior={interactiveBehaviorRef.current}
             />
 
-            {/* Example 2: Morphing behavior that changes over time */}
+            {/* Example 2: Custom config (spiral) with custom behavior (dynamic uniforms) */}
+            <ParticleSystem
+                count={256}
+                config={spiralConfig}
+                behavior={customUniformBehaviorRef.current}
+            />
+
+            {/* Example 3: Fire behavior with custom position logic */}
+            <ParticleSystem
+                count={512}
+                config={fireConfig}
+                behavior={fireBehavior}
+            />
+
+            {/* Example 4: Morphing behavior that changes over time */}
             <ParticleSystem
                 count={256}
                 config={morphingConfig}

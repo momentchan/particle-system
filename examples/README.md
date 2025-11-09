@@ -1,66 +1,56 @@
 # Particle System Examples
 
-This directory contains various examples demonstrating different features of the particle system.
+This directory contains examples demonstrating different features of the particle system.
 
 ## Examples Overview
 
 ### BasicExamples.tsx
-Simple examples showing basic particle configurations and behaviors:
-- Grid positioned particles with gravity
-- Random positioned particles with swirling motion
-- Sphere particles with radial velocities
-- Attractor behavior
+Simple examples showing built-in behaviors and configurations:
+- **Gravity behavior** - Particles with gravity and bouncing boundaries
+- **Swirl behavior** - Swirling motion with random positioning
 
 ### AdvancedExamples.tsx
-Advanced examples with dynamic behaviors:
-- Interactive particles that follow mouse position
-- Morphing behavior that changes over time
-- Custom color configurations
-
-### CustomExamples.tsx
-Examples using custom configuration classes:
-- Spiral position configurations
-- Wave velocity configurations
-- Rainbow color configurations
-- Custom shader behaviors
-
-### CustomUniformExamples.tsx
-Examples demonstrating custom uniform usage:
-- How to define custom uniforms in behaviors
-- Dynamic uniform updates using useFrame
-- Multiple custom uniforms working together
+Advanced examples demonstrating custom features:
+- **Interactive behavior** - Particles that follow mouse position (dynamic uniforms)
+- **Custom config** - Spiral positioning example
+- **Custom behavior with uniforms** - Dynamic uniform updates
+- **Fire behavior** - Custom position logic (particle reset)
+- **Morphing behavior** - Behavior that changes over time
 
 ## Custom Uniforms Usage
 
 Custom uniforms allow you to pass dynamic values to your shaders. Here's how to use them:
 
-### 1. Define Custom Uniforms in Your Behavior
+### 1. Define Custom Uniforms in Your Behavior (Using New Composition System)
 
 ```typescript
 class MyCustomBehavior extends ParticleBehavior {
+    public uniforms: Record<string, any>;
+
     constructor(private myValue: number = 1.0) {
         super();
-    }
-
-    // Override this method to provide custom uniforms
-    getVelocityUniforms(): Record<string, any> {
-        return {
+        
+        // Store uniforms for dynamic updates
+        this.uniforms = {
             myValue: { value: this.myValue },
             anotherUniform: { value: 2.0 }
         };
     }
 
-    getVelocityShader(): string {
+    // Return uniforms (automatically declared in shader)
+    getVelocityUniforms(): Record<string, any> {
+        return this.uniforms;
+    }
+
+    // Override velocity logic (uniforms are auto-declared)
+    protected getVelocityUpdateLogic(): string {
         return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
-            uniform float myValue;        // Your custom uniform
-            uniform float anotherUniform; // Another custom uniform
+            // Use your custom uniforms - they're automatically declared!
+            vel.x += myValue * delta;
+            vel.y += anotherUniform * 0.1;
             
-            void main() {
-                // Use your custom uniforms in the shader
-                // ... shader code ...
-            }
+            // Damping
+            vel.xyz *= 0.99;
         `;
     }
 }
@@ -73,10 +63,13 @@ const behaviorRef = useRef<MyCustomBehavior>(new MyCustomBehavior());
 
 useFrame((state) => {
     if (behaviorRef.current) {
-        // Update uniform values dynamically
-        behaviorRef.current.getVelocityUniforms().myValue.value = Math.sin(state.clock.elapsedTime);
+        // Update uniform values directly via the uniforms object
+        behaviorRef.current.uniforms.myValue.value = Math.sin(state.clock.elapsedTime);
+        behaviorRef.current.uniforms.anotherUniform.value = Math.cos(state.clock.elapsedTime);
     }
 });
+
+<ParticleSystem behavior={behaviorRef.current} />
 ```
 
 ### 3. Available Uniform Methods
