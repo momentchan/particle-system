@@ -15,7 +15,10 @@ import {
     generateInitialSizes
 } from './utils/particleData';
 import { DEFAULT_VERTEX_SHADER, DEFAULT_FRAGMENT_SHADER } from './utils/shaders';
+import { INSTANCED_VERTEX_SHADER, INSTANCED_FRAGMENT_SHADER } from './utils/instancedShaders';
 import { DEFAULT_PARTICLE_COUNT, MAX_DELTA_TIME } from './utils/constants';
+
+export type ParticleMeshType = 'points' | 'instanced';
 
 export interface ParticleSystemProps {
     count?: number;
@@ -25,6 +28,8 @@ export interface ParticleSystemProps {
     positionShader?: string;
     velocityShader?: string;
     update?: boolean;
+    meshType?: ParticleMeshType;
+    instanceGeometry?: THREE.BufferGeometry | null;
 }
 
 export interface ParticleSystemRef {
@@ -41,9 +46,12 @@ const ParticleSystem = forwardRef<ParticleSystemRef, ParticleSystemProps>(({
     positionShader,
     velocityShader,
     update = true,
+    meshType = 'points',
+    instanceGeometry,
 }, ref) => {
     const { gl } = useThree();
-    const meshRef = useRef<THREE.Points>(null);
+    const pointsRef = useRef<THREE.Points>(null);
+    const instancedMeshRef = useRef<THREE.InstancedMesh>(null);
     const timeRef = useRef(0);
     const prevUniformsRef = useRef<{
         position: Record<string, any>;
@@ -107,7 +115,8 @@ const ParticleSystem = forwardRef<ParticleSystemRef, ParticleSystemProps>(({
         return gpgpuInstance;
     }, [gl, count, config?.position, config?.velocity, finalBehavior, finalPositionShader, finalVelocityShader]);
 
-    const geometry = useMemo(() => {
+    // Geometry for points (needs UVs for texture sampling)
+    const pointsGeometry = useMemo(() => {
         const textureSize = Math.sqrt(Math.floor(count));
         const geometryInstance = new THREE.BufferGeometry();
 
@@ -133,37 +142,58 @@ const ParticleSystem = forwardRef<ParticleSystemRef, ParticleSystemProps>(({
         return geometryInstance;
     }, [count, config?.color, config?.size]);
 
+    // Instance geometry (for instanced mesh mode)
+    const instancedGeo = useMemo(() => {
+        if (meshType === 'instanced') {
+            const geo = instanceGeometry || new THREE.BoxGeometry(0.1, 0.1, 0.1);
+            // Add color attribute to instance geometry if not present
+            if (!geo.attributes.color) {
+                const colors = generateInitialColors(count, config?.color);
+                geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            }
+            return geo;
+        }
+        return null;
+    }, [meshType, instanceGeometry, count, config?.color]);
+
+
     const material = useMemo(() => {
-        return new THREE.ShaderMaterial({
+        const isInstanced = meshType === 'instanced';
+        const mat = new THREE.ShaderMaterial({
             uniforms: {
                 positionTex: { value: null },
                 velocityTex: { value: null },
                 time: { value: 0.0 },
                 sizeMultiplier: { value: particleParams.size },
-                opacity: { value: particleParams.opacity }
+                opacity: { value: particleParams.opacity },
+                ...(isInstanced ? { instanceCount: { value: count } } : {})
             },
-            vertexShader: DEFAULT_VERTEX_SHADER,
-            fragmentShader: DEFAULT_FRAGMENT_SHADER,
-            transparent: particleParams.transparent,
+            vertexShader: isInstanced ? INSTANCED_VERTEX_SHADER : DEFAULT_VERTEX_SHADER,
+            fragmentShader: isInstanced ? INSTANCED_FRAGMENT_SHADER : DEFAULT_FRAGMENT_SHADER,
+            transparent: true, // Will be updated via useEffect
             vertexColors: true
         });
-    }, [particleParams.transparent]);
+        
+        return mat;
+    }, [meshType, count]);
 
     useEffect(() => {
         if (material) {
+            material.transparent = particleParams.transparent;
             material.uniforms.sizeMultiplier.value = particleParams.size;
             material.uniforms.opacity.value = particleParams.opacity;
         }
-    }, [material, particleParams.size, particleParams.opacity]);
+    }, [material, particleParams.transparent, particleParams.size, particleParams.opacity]);
 
 
     useEffect(() => {
         return () => {
             gpgpu?.dispose();
-            geometry?.dispose();
+            pointsGeometry?.dispose();
+            instancedGeo?.dispose();
             material?.dispose();
         };
-    }, [gpgpu, geometry, material]);
+    }, [gpgpu, pointsGeometry, instancedGeo, material]);
 
     const updateUniforms = useCallback((uniforms: Record<string, any>, variableName: string, cacheKey: 'position' | 'velocity') => {
         Object.entries(uniforms).forEach(([name, uniform]) => {
@@ -177,6 +207,11 @@ const ParticleSystem = forwardRef<ParticleSystemRef, ParticleSystemProps>(({
 
     useFrame((state, delta) => {
         if (!gpgpu || !update) return;
+
+        // Check if GPGPU variables are initialized
+        if (!gpgpu.getVariable('positionTex') || !gpgpu.getVariable('velocityTex')) {
+            return;
+        }
 
         const dt = Math.min(delta, MAX_DELTA_TIME);
         const t = timeRef.current;
@@ -198,9 +233,17 @@ const ParticleSystem = forwardRef<ParticleSystemRef, ParticleSystemProps>(({
         const positionTex = gpgpu.getCurrentRenderTarget('positionTex');
         const velocityTex = gpgpu.getCurrentRenderTarget('velocityTex');
 
-        material.uniforms.positionTex.value = positionTex;
-        material.uniforms.velocityTex.value = velocityTex;
-        material.uniforms.time.value = state.clock.elapsedTime;
+        if (positionTex && velocityTex) {
+            const currentMaterial = customMaterial || material;
+            if (currentMaterial instanceof THREE.ShaderMaterial) {
+                currentMaterial.uniforms.positionTex.value = positionTex;
+                currentMaterial.uniforms.velocityTex.value = velocityTex;
+                currentMaterial.uniforms.time.value = state.clock.elapsedTime;
+                if (meshType === 'instanced' && 'instanceCount' in currentMaterial.uniforms) {
+                    currentMaterial.uniforms.instanceCount.value = count;
+                }
+            }
+        }
     });
 
     const handleReset = useCallback(() => {
@@ -223,9 +266,39 @@ const ParticleSystem = forwardRef<ParticleSystemRef, ParticleSystemProps>(({
         reset: handleReset
     }), [gpgpu, handleReset]);
 
+    // Initialize instance matrices to identity (Three.js creates instanceMatrix automatically)
+    useEffect(() => {
+        if (meshType === 'instanced' && instancedMeshRef.current) {
+            const instancedMesh = instancedMeshRef.current;
+            // Three.js automatically creates instanceMatrix, we just initialize all to identity
+            // Positions come from texture in shader, so identity matrices are fine
+            const matrix = new THREE.Matrix4();
+            for (let i = 0; i < count; i++) {
+                matrix.identity();
+                instancedMesh.setMatrixAt(i, matrix);
+            }
+            instancedMesh.instanceMatrix.needsUpdate = true;
+        }
+    }, [meshType, count]);
+
+    // Render points or instanced mesh based on meshType
+    if (meshType === 'instanced' && instancedGeo) {
+        return (
+            <instancedMesh
+                ref={instancedMeshRef}
+                args={[instancedGeo, customMaterial || material, count]}
+                frustumCulled={false}
+            />
+        );
+    }
+
     return (
         <points
-            ref={meshRef} geometry={geometry} material={customMaterial || material} frustumCulled={false} />
+            ref={pointsRef}
+            geometry={pointsGeometry}
+            material={customMaterial || material}
+            frustumCulled={false}
+        />
     );
 });
 

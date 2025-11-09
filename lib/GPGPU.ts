@@ -35,16 +35,28 @@ export default class GPGPU {
         this.gpuCompute.compute();
     }
 
-    getUniform<T = any>(name: string, property: string): IUniform<T> {
-        return (this.variables[name].material.uniforms[property]) as IUniform<T>;
+    getUniform<T = any>(name: string, property: string): IUniform<T> | null {
+        const variable = this.variables[name];
+        if (!variable || !variable.material) {
+            return null;
+        }
+        return (variable.material.uniforms[property]) as IUniform<T>;
     }
 
     setUniform(name: string, property: string, value: any) {
-        this.getUniform(name, property).value = value;
+        const uniform = this.getUniform(name, property);
+        if (uniform) {
+            uniform.value = value;
+        }
     }
 
-    getCurrentRenderTarget(name: string): Texture {
-        return this.gpuCompute.getCurrentRenderTarget(this.variables[name]).texture;
+    getCurrentRenderTarget(name: string): Texture | null {
+        const variable = this.variables[name];
+        if (!variable) {
+            return null;
+        }
+        const renderTarget = this.gpuCompute.getCurrentRenderTarget(variable);
+        return renderTarget ? renderTarget.texture : null;
     }
 
     dispose() {
