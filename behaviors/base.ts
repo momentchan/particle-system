@@ -12,12 +12,12 @@ export abstract class ParticleBehavior {
     abstract getName(): string;
     
     // Boundary configuration - override to customize
+    // Default: no boundaries (particles can move freely)
     protected getBoundaryConfig(): BoundaryConfig {
         return {
-            type: 'wrap',
-            min: [-10.0, -10.0, -10.0],
-            max: [10.0, 10.0, 10.0],
-            bounceFactor: 0.8
+            type: 'none',
+            min: [0, 0, 0],
+            max: [0, 0, 0]
         };
     }
     
@@ -48,37 +48,74 @@ export abstract class ParticleBehavior {
         const declarations: string[] = [];
         
         for (const [name, uniform] of Object.entries(uniforms)) {
-            const value = uniform.value;
+            // Allow explicit type specification: { value: ..., type: 'vec3' }
+            if (uniform.type && typeof uniform.type === 'string') {
+                declarations.push(`uniform ${uniform.type} ${name};`);
+                continue;
+            }
             
-            if (typeof value === 'number') {
-                declarations.push(`uniform float ${name};`);
-            } else if (value && typeof value === 'object') {
-                // Check for THREE.Vector3
-                if (value.isVector3 || (typeof value.x === 'number' && typeof value.y === 'number' && typeof value.z === 'number')) {
-                    declarations.push(`uniform vec3 ${name};`);
-                }
-                // Check for THREE.Vector2
-                else if (value.isVector2 || (typeof value.x === 'number' && typeof value.y === 'number' && !('z' in value))) {
-                    declarations.push(`uniform vec2 ${name};`);
-                }
-                // Check for THREE.Color
-                else if (value.isColor || (typeof value.r === 'number' && typeof value.g === 'number' && typeof value.b === 'number')) {
-                    declarations.push(`uniform vec3 ${name};`);
-                }
-                // Check for arrays
-                else if (Array.isArray(value)) {
-                    if (value.length === 2 && typeof value[0] === 'number' && typeof value[1] === 'number') {
-                        declarations.push(`uniform vec2 ${name};`);
-                    } else if (value.length === 3 && typeof value[0] === 'number' && typeof value[1] === 'number' && typeof value[2] === 'number') {
-                        declarations.push(`uniform vec3 ${name};`);
-                    } else if (value.length === 4 && typeof value[0] === 'number' && typeof value[1] === 'number' && typeof value[2] === 'number' && typeof value[3] === 'number') {
-                        declarations.push(`uniform vec4 ${name};`);
-                    }
-                }
+            // Auto-detect type from value
+            const value = uniform.value;
+            const glslType = this.detectGLSLType(value);
+            
+            if (glslType) {
+                declarations.push(`uniform ${glslType} ${name};`);
             }
         }
         
         return declarations.join('\n');
+    }
+    
+    // Detect GLSL type from JavaScript value (auto-detection for convenience)
+    private detectGLSLType(value: any): string | null {
+        // Number -> float
+        if (typeof value === 'number') {
+            return 'float';
+        }
+        
+        if (!value || typeof value !== 'object') {
+            return null;
+        }
+        
+        // THREE.js objects (check type flags first for reliability)
+        if (value.isTexture) {
+            return 'sampler2D';
+        }
+        if (value.isVector3) {
+            return 'vec3';
+        }
+        if (value.isVector2) {
+            return 'vec2';
+        }
+        if (value.isColor) {
+            return 'vec3';
+        }
+        
+        // Arrays
+        if (Array.isArray(value)) {
+            const length = value.length;
+            // Check if all elements are numbers
+            if (length >= 2 && length <= 4 && value.every((v: any) => typeof v === 'number')) {
+                return `vec${length}`;
+            }
+            return null;
+        }
+        
+        // Duck typing fallback for plain objects
+        // Vector3: has x, y, z
+        if (typeof value.x === 'number' && typeof value.y === 'number' && typeof value.z === 'number') {
+            return 'vec3';
+        }
+        // Vector2: has x, y but no z
+        if (typeof value.x === 'number' && typeof value.y === 'number' && !('z' in value)) {
+            return 'vec2';
+        }
+        // Color: has r, g, b
+        if (typeof value.r === 'number' && typeof value.g === 'number' && typeof value.b === 'number') {
+            return 'vec3';
+        }
+        
+        return null;
     }
     
     // Generate boundary shader code

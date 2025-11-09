@@ -118,6 +118,10 @@ const ParticleSystem = forwardRef<{
     const { gl } = useThree();
     const meshRef = useRef<THREE.Points>(null);
     const timeRef = useRef(0);
+    const prevUniformsRef = useRef<{
+        position: Record<string, any>;
+        velocity: Record<string, any>;
+    }>({ position: {}, velocity: {} });
     // Leva controls (count is controlled by parent component)
     const particleParams = useControls('Particle System', {
         size: { value: 0.1, min: 0.001, max: 0.5, step: 0.001 },
@@ -273,6 +277,21 @@ const ParticleSystem = forwardRef<{
         }
     }, [material, particleParams.size, particleParams.opacity]);
 
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            if (gpgpu) {
+                gpgpu.dispose();
+            }
+            if (geometry) {
+                geometry.dispose();
+            }
+            if (material) {
+                material.dispose();
+            }
+        };
+    }, [gpgpu, geometry, material]);
+
     // Animation loop
     useFrame((state, delta) => {
         if (gpgpu && update) {
@@ -286,16 +305,24 @@ const ParticleSystem = forwardRef<{
             gpgpu.setUniform('positionTex', 'delta', dt);
             gpgpu.setUniform('velocityTex', 'delta', dt);
 
-            // Update custom uniforms from behavior
+            // Update custom uniforms from behavior (only if changed)
             const positionUniforms = finalBehavior.getPositionUniforms();
             const velocityUniforms = finalBehavior.getVelocityUniforms();
 
             Object.entries(positionUniforms).forEach(([name, uniform]) => {
-                gpgpu.setUniform('positionTex', name, uniform.value);
+                const prevValue = prevUniformsRef.current.position[name];
+                if (prevValue !== uniform.value) {
+                    gpgpu.setUniform('positionTex', name, uniform.value);
+                    prevUniformsRef.current.position[name] = uniform.value;
+                }
             });
 
             Object.entries(velocityUniforms).forEach(([name, uniform]) => {
-                gpgpu.setUniform('velocityTex', name, uniform.value);
+                const prevValue = prevUniformsRef.current.velocity[name];
+                if (prevValue !== uniform.value) {
+                    gpgpu.setUniform('velocityTex', name, uniform.value);
+                    prevUniformsRef.current.velocity[name] = uniform.value;
+                }
             });
 
             // Compute particle simulation
@@ -336,9 +363,16 @@ const ParticleSystem = forwardRef<{
                 const positionData = generateInitialPositions(count, config?.position);
                 const velocityData = generateInitialVelocities(count, config?.velocity);
 
-                // Note: GPGPU doesn't have a direct reset method, so we'd need to reinitialize
-                // For now, this is a placeholder
-                console.log('Reset functionality would require reinitializing GPGPU');
+                // Reset variables to initial state
+                gpgpu.resetVariable('positionTex', positionData);
+                gpgpu.resetVariable('velocityTex', velocityData);
+
+                // Reset time
+                timeRef.current = 0;
+
+                // Clear uniform cache
+                prevUniformsRef.current.position = {};
+                prevUniformsRef.current.velocity = {};
             }
         }
     }));

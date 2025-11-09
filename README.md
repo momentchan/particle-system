@@ -145,10 +145,14 @@ class FireBehavior extends ParticleBehavior {
 
 **Creating Behavior with Custom Uniforms:**
 
+You can provide uniforms in two ways:
+
+**Option 1: Auto-detection (easiest)** - Types are automatically detected from values:
 ```tsx
 import { ParticleBehavior } from './particle-system';
 import { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
+import * as THREE from 'three';
 
 class WaveBehavior extends ParticleBehavior {
   public uniforms: Record<string, any>;
@@ -159,10 +163,11 @@ class WaveBehavior extends ParticleBehavior {
   ) {
     super();
     
-    // Store uniforms for dynamic updates
+    // Types are auto-detected: number → float, Vector3 → vec3, Texture → sampler2D
     this.uniforms = {
-      waveSpeed: { value: this.waveSpeed },
-      waveAmplitude: { value: this.waveAmplitude }
+      waveSpeed: { value: this.waveSpeed },           // auto: float
+      waveAmplitude: { value: this.waveAmplitude },  // auto: float
+      position: { value: new THREE.Vector3(0, 0, 0) } // auto: vec3
     };
   }
 
@@ -202,6 +207,54 @@ function MyComponent() {
       behavior={behaviorRef.current}
     />
   );
+}
+```
+
+**Using Textures as Uniforms:**
+
+```tsx
+import { ParticleBehavior } from './particle-system';
+import * as THREE from 'three';
+import { useLoader } from '@react-three/drei';
+import { useMemo } from 'react';
+
+class TextureBasedBehavior extends ParticleBehavior {
+  public uniforms: Record<string, any>;
+
+  constructor(texture: THREE.Texture) {
+    super();
+    this.uniforms = {
+      noiseTexture: { value: texture },
+      noiseStrength: { value: 0.5 }
+    };
+  }
+
+  getName(): string {
+    return 'Texture Based';
+  }
+
+  getVelocityUniforms(): Record<string, any> {
+    return this.uniforms;
+  }
+
+  protected getVelocityUpdateLogic(): string {
+    return /*glsl*/ `
+      // Sample noise texture
+      vec4 noise = texture2D(noiseTexture, pos.xy * 0.1 + time * 0.1);
+      vec3 noiseForce = (noise.xyz - 0.5) * noiseStrength;
+      
+      vel.xyz += noiseForce * delta;
+      vel.xyz *= 0.98;
+    `;
+  }
+}
+
+// Usage
+function MyParticles() {
+  const texture = useLoader(THREE.TextureLoader, '/noise.png');
+  const behavior = useMemo(() => new TextureBasedBehavior(texture), [texture]);
+  
+  return <ParticleSystem behavior={behavior} count={256} />;
 }
 ```
 
@@ -431,7 +484,7 @@ abstract class ParticleBehavior {
   getPositionUniforms(): Record<string, any>;
   getVelocityUniforms(): Record<string, any>;
   
-  // Override for custom boundaries
+  // Override for custom boundaries (optional - defaults to 'none')
   protected getBoundaryConfig(): BoundaryConfig;
   
   // These are automatically generated (don't override)
@@ -445,7 +498,25 @@ abstract class ParticleBehavior {
 - `getPositionUpdateLogic()`: Override to provide custom position update logic (GLSL code snippet)
 - `getVelocityUniforms()`: Return uniforms object for velocity shader
 - `getPositionUniforms()`: Return uniforms object for position shader
-- `getBoundaryConfig()`: Define boundary behavior (wrap, bounce, none)
+- `getBoundaryConfig()`: Define boundary behavior (optional - defaults to `none`)
+
+**Boundary Configuration:**
+Boundaries control what happens when particles reach the edges of a 3D box. Useful for keeping particles visible or creating specific effects:
+
+```tsx
+protected getBoundaryConfig(): BoundaryConfig {
+  return {
+    type: 'bounce',  // 'wrap' | 'bounce' | 'none' (default: 'none')
+    min: [-10.0, -10.0, -10.0],
+    max: [10.0, 10.0, 10.0],
+    bounceFactor: 0.8  // Only used for 'bounce' type
+  };
+}
+```
+
+- **`wrap`**: Particles teleport to opposite side (like Pac-Man)
+- **`bounce`**: Particles bounce off boundaries with velocity reversal (useful for gravity/ground effects)
+- **`none`**: No boundary handling (default - particles move freely)
 
 **Available Variables in GLSL:**
 - `pos` - Current particle position (vec4: x, y, z, age)
@@ -453,6 +524,13 @@ abstract class ParticleBehavior {
 - `delta` - Time delta since last frame (float)
 - `time` - Total elapsed time (float)
 - `uv` - Texture coordinates (vec2)
+
+**Supported Uniform Types:**
+- `number` → `float`
+- `THREE.Vector2` or `[number, number]` → `vec2`
+- `THREE.Vector3` or `[number, number, number]` → `vec3`
+- `THREE.Color` or `{r, g, b}` → `vec3`
+- `THREE.Texture` (any texture type) → `sampler2D`
 
 ## Performance Considerations
 
