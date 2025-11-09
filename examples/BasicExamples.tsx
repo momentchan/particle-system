@@ -1,13 +1,12 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import {
     ParticleSystem,
     GridPositionConfig,
     RandomPositionConfig,
     SpherePositionConfig,
     ZeroVelocityConfig,
-    RandomVelocityConfig,
     RadialVelocityConfig,
     UniformColorConfig,
     RandomColorConfig,

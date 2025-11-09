@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import {
     ParticleSystem,
     ParticlePositionConfig,
@@ -8,8 +8,6 @@ import {
     ParticleColorConfig,
     ParticleSizeConfig,
     ParticleBehavior,
-    ShaderBuilder,
-    ShaderTemplates,
     SpherePositionConfig,
     ZeroVelocityConfig,
     GradientColorConfig,
@@ -29,7 +27,7 @@ class SpiralPositionConfig extends ParticlePositionConfig {
         super();
     }
 
-    generatePosition(index: number, totalCount: number, size: number): [number, number, number, number] {
+    generatePosition(index: number, totalCount: number): [number, number, number, number] {
         const t = index / totalCount;
         const angle = t * this.turns * Math.PI * 2;
         const r = t * this.radius;
@@ -48,7 +46,7 @@ class WaveVelocityConfig extends ParticleVelocityConfig {
         super();
     }
 
-    generateVelocity(index: number, totalCount: number, size: number): [number, number, number, number] {
+    generateVelocity(index: number, totalCount: number): [number, number, number, number] {
         const t = index / totalCount;
         const wave = Math.sin(t * this.frequency * Math.PI * 2) * this.amplitude;
         return [wave, 0, 0, 0];
@@ -92,7 +90,7 @@ class DistanceBasedSizeConfig extends ParticleSizeConfig {
     }
 }
 
-// Custom behavior with custom shaders
+// Custom behavior using the new composition system
 class CustomWaveBehavior extends ParticleBehavior {
     constructor(
         private waveSpeed: number = 1.0,
@@ -105,79 +103,58 @@ class CustomWaveBehavior extends ParticleBehavior {
         return 'Custom Wave';
     }
 
-    getPositionShader(): string {
-        return new ShaderBuilder()
-            .setPositionShader(ShaderTemplates.swirl.position)
-            .build().positionShader;
+    getVelocityUniforms(): Record<string, any> {
+        return {
+            waveSpeed: { value: this.waveSpeed },
+            waveAmplitude: { value: this.waveAmplitude }
+        };
     }
 
-    getVelocityShader(): string {
-        return new ShaderBuilder()
-            .setVelocityShader(ShaderTemplates.swirl.velocity)
-            .addUniform('waveSpeed', this.waveSpeed)
-            .addUniform('waveAmplitude', this.waveAmplitude)
-            .build().velocityShader;
+    protected getVelocityUpdateLogic(): string {
+        return /*glsl*/ `
+            // Custom wave motion
+            float wave = sin(pos.x * waveSpeed + time) * waveAmplitude;
+            vel.y = wave;
+            
+            // Add some damping
+            vel.xyz *= 0.98;
+        `;
     }
 }
 
-// Custom behavior with completely custom shaders
+// Custom behavior with fire-like motion using the new composition system
 class FireBehavior extends ParticleBehavior {
     getName(): string {
         return 'Fire';
     }
 
-    getPositionShader(): string {
+    // Override position update to reset particles that go too high
+    protected getPositionUpdateLogic(): string {
         return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
+            pos.xyz += vel.xyz * delta;
             
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 pos = texture2D(positionTex, uv);
-                vec4 vel = texture2D(velocityTex, uv);
-                
-                pos.xyz += vel.xyz * delta;
-                
-                // Reset particles that go too high
-                if (pos.y > 5.0) {
-                    pos.y = -5.0;
-                    pos.x = (uv.x - 0.5) * 2.0;
-                    pos.z = (uv.y - 0.5) * 2.0;
-                }
-                
-                pos.w = mod(pos.w + delta, 1.0);
-                
-                gl_FragColor = pos;
+            // Reset particles that go too high
+            if (pos.y > 5.0) {
+                pos.y = -5.0;
+                pos.x = (uv.x - 0.5) * 2.0;
+                pos.z = (uv.y - 0.5) * 2.0;
             }
         `;
     }
 
-    getVelocityShader(): string {
+    protected getVelocityUpdateLogic(): string {
         return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
+            // Fire-like upward motion with turbulence
+            vel.y += 0.1 * delta;
             
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 vel = texture2D(velocityTex, uv);
-                vec4 pos = texture2D(positionTex, uv);
-                
-                // Fire-like upward motion with turbulence
-                vel.y += 0.1 * delta;
-                
-                // Add turbulence
-                float noise1 = sin(pos.x * 0.1 + time) * 0.05;
-                float noise2 = cos(pos.z * 0.1 + time * 0.7) * 0.05;
-                vel.x += noise1;
-                vel.z += noise2;
-                
-                // Damping
-                vel.xyz *= 0.98;
-                
-                gl_FragColor = vel;
-            }
+            // Add turbulence
+            float noise1 = sin(pos.x * 0.1 + time) * 0.05;
+            float noise2 = cos(pos.z * 0.1 + time * 0.7) * 0.05;
+            vel.x += noise1;
+            vel.z += noise2;
+            
+            // Damping
+            vel.xyz *= 0.98;
         `;
     }
 }

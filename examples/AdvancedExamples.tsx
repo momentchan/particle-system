@@ -1,104 +1,75 @@
 'use client';
 
-import React, { useRef, useState, useMemo } from 'react';
+import { useRef, useMemo } from 'react';
+import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import {
     ParticleSystem,
-    ParticlePositionConfig,
-    ParticleVelocityConfig,
     ParticleColorConfig,
-    ParticleSizeConfig,
     ParticleBehavior,
     RandomPositionConfig,
     ZeroVelocityConfig,
     GradientColorConfig,
-    UniformSizeConfig,
-    ShaderBuilder
+    UniformSizeConfig
 } from '../index';
 
-// Interactive behavior that responds to mouse position
+// Interactive behavior that responds to mouse position using the new composition system
 class InteractiveBehavior extends ParticleBehavior {
+    public uniforms: Record<string, any>;
+
     constructor(
         private mousePosition: [number, number] = [0, 0],
         private attractionStrength: number = 0.1
     ) {
         super();
+        
+        // Create uniforms for dynamic updates
+        this.uniforms = {
+            mousePosition: { value: new THREE.Vector2(...this.mousePosition) },
+            attractionStrength: { value: this.attractionStrength }
+        };
     }
 
     updateMousePosition(x: number, y: number): void {
         this.mousePosition = [x, y];
+        // Update uniform value
+        if (this.uniforms.mousePosition.value) {
+            this.uniforms.mousePosition.value.set(x, y);
+        }
     }
 
     getName(): string {
         return 'Interactive';
     }
 
-    getPositionShader(): string {
-        return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
-            
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 pos = texture2D(positionTex, uv);
-                vec4 vel = texture2D(velocityTex, uv);
-                
-                pos.xyz += vel.xyz * delta;
-                
-                // Wrap around boundaries
-                if (pos.x > 10.0) pos.x = -10.0;
-                if (pos.x < -10.0) pos.x = 10.0;
-                if (pos.y > 10.0) pos.y = -10.0;
-                if (pos.y < -10.0) pos.y = 10.0;
-                if (pos.z > 10.0) pos.z = -10.0;
-                if (pos.z < -10.0) pos.z = 10.0;
-                
-                pos.w = mod(pos.w + delta, 1.0);
-                
-                gl_FragColor = pos;
-            }
-        `;
+    getVelocityUniforms(): Record<string, any> {
+        return this.uniforms;
     }
 
-    getVelocityShader(): string {
+    protected getVelocityUpdateLogic(): string {
         return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
-            uniform vec2 mousePosition;
-            uniform float attractionStrength;
+            // Attract particles to mouse position
+            vec2 mousePos = mousePosition * 10.0; // Scale to world coordinates
+            vec2 force = mousePos - pos.xy;
+            float dist = length(force);
             
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 vel = texture2D(velocityTex, uv);
-                vec4 pos = texture2D(positionTex, uv);
-                
-                // Attract particles to mouse position
-                vec2 mousePos = mousePosition * 10.0; // Scale to world coordinates
-                vec2 force = mousePos - pos.xy;
-                float dist = length(force);
-                
-                if (dist > 0.1) {
-                    force = normalize(force) * attractionStrength / (dist + 0.1);
-                    vel.xy += force * delta;
-                }
-                
-                // Add some noise for organic movement
-                float noise = sin(pos.x * 0.1 + time) * cos(pos.z * 0.1 + time * 0.7) * 0.02;
-                vel.x += noise;
-                vel.z += noise;
-                
-                // Damping
-                vel.xyz *= 0.99;
-                
-                gl_FragColor = vel;
+            if (dist > 0.1) {
+                force = normalize(force) * attractionStrength / (dist + 0.1);
+                vel.xy += force * delta;
             }
+            
+            // Add some noise for organic movement
+            float noise = sin(pos.x * 0.1 + time) * cos(pos.z * 0.1 + time * 0.7) * 0.02;
+            vel.x += noise;
+            vel.z += noise;
+            
+            // Damping
+            vel.xyz *= 0.99;
         `;
     }
 }
 
-// Particle system that changes behavior over time
+// Particle system that changes behavior over time using the new composition system
 class MorphingBehavior extends ParticleBehavior {
     constructor(
         private morphSpeed: number = 0.5
@@ -110,67 +81,32 @@ class MorphingBehavior extends ParticleBehavior {
         return 'Morphing';
     }
 
-    getPositionShader(): string {
-        return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
-            
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 pos = texture2D(positionTex, uv);
-                vec4 vel = texture2D(velocityTex, uv);
-                
-                pos.xyz += vel.xyz * delta;
-                
-                // Wrap around boundaries
-                if (pos.x > 10.0) pos.x = -10.0;
-                if (pos.x < -10.0) pos.x = 10.0;
-                if (pos.y > 10.0) pos.y = -10.0;
-                if (pos.y < -10.0) pos.y = 10.0;
-                if (pos.z > 10.0) pos.z = -10.0;
-                if (pos.z < -10.0) pos.z = 10.0;
-                
-                pos.w = mod(pos.w + delta, 1.0);
-                
-                gl_FragColor = pos;
-            }
-        `;
+    getVelocityUniforms(): Record<string, any> {
+        return {
+            morphSpeed: { value: this.morphSpeed }
+        };
     }
 
-    getVelocityShader(): string {
+    protected getVelocityUpdateLogic(): string {
         return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
-            uniform float morphSpeed;
+            // Morph between different behaviors over time
+            float morphTime = sin(time * morphSpeed) * 0.5 + 0.5;
             
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 vel = texture2D(velocityTex, uv);
-                vec4 pos = texture2D(positionTex, uv);
-                
-                // Morph between different behaviors over time
-                float morphTime = sin(time * morphSpeed) * 0.5 + 0.5;
-                
-                // Behavior 1: Swirling motion
-                float dist1 = length(pos.xy);
-                float angle1 = atan(pos.y, pos.x) + time * 0.5;
-                vec2 swirlVel = vec2(cos(angle1), sin(angle1)) * 0.1;
-                
-                // Behavior 2: Radial motion
-                vec2 radialVel = normalize(pos.xy) * 0.1;
-                
-                // Interpolate between behaviors
-                vec2 finalVel = mix(swirlVel, radialVel, morphTime);
-                vel.xy = finalVel;
-                vel.z = sin(dist1 * 0.1 + time) * 0.05;
-                
-                // Damping
-                vel.xyz *= 0.98;
-                
-                gl_FragColor = vel;
-            }
+            // Behavior 1: Swirling motion
+            float dist1 = length(pos.xy);
+            float angle1 = atan(pos.y, pos.x) + time * 0.5;
+            vec2 swirlVel = vec2(cos(angle1), sin(angle1)) * 0.1;
+            
+            // Behavior 2: Radial motion
+            vec2 radialVel = normalize(pos.xy) * 0.1;
+            
+            // Interpolate between behaviors
+            vec2 finalVel = mix(swirlVel, radialVel, morphTime);
+            vel.xy = finalVel;
+            vel.z = sin(dist1 * 0.1 + time) * 0.05;
+            
+            // Damping
+            vel.xyz *= 0.98;
         `;
     }
 }
@@ -185,8 +121,7 @@ class TimeBasedColorConfig extends ParticleColorConfig {
         super();
     }
 
-    generateColor(index: number, totalCount: number): [number, number, number] {
-        const t = index / totalCount;
+    generateColor(_index: number, _totalCount: number): [number, number, number] {
         const time = Date.now() * 0.001; // Convert to seconds
         
         // Cycle through colors based on time
@@ -215,7 +150,6 @@ class TimeBasedColorConfig extends ParticleColorConfig {
 }
 
 export default function AdvancedExamples() {
-    const [mousePosition, setMousePosition] = useState<[number, number]>([0, 0]);
     const interactiveBehaviorRef = useRef<InteractiveBehavior>(new InteractiveBehavior());
 
     // Memoize config objects to prevent recreation on every render

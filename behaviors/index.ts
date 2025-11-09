@@ -1,14 +1,38 @@
 import * as THREE from 'three';
 
+// Boundary handling types
+export type BoundaryType = 'wrap' | 'bounce' | 'none';
+export interface BoundaryConfig {
+    type: BoundaryType;
+    min: [number, number, number];
+    max: [number, number, number];
+    bounceFactor?: number; // Only used for bounce type
+}
+
 // Base behavior classes for particle system behaviors
 export abstract class ParticleBehavior {
-    abstract getPositionShader(): string;
-    abstract getVelocityShader(): string;
     abstract getName(): string;
     
-    // Override this method to provide custom uniforms
-    getCustomUniforms(): Record<string, any> {
-        return {};
+    // Boundary configuration - override to customize
+    protected getBoundaryConfig(): BoundaryConfig {
+        return {
+            type: 'wrap',
+            min: [-10.0, -10.0, -10.0],
+            max: [10.0, 10.0, 10.0],
+            bounceFactor: 0.8
+        };
+    }
+    
+    // Override this to provide custom position update logic
+    // Default: pos.xyz += vel.xyz * delta;
+    protected getPositionUpdateLogic(): string {
+        return 'pos.xyz += vel.xyz * delta;';
+    }
+    
+    // Override this to provide custom velocity update logic
+    // Default: vel.xyz *= 0.99; (damping)
+    protected getVelocityUpdateLogic(): string {
+        return 'vel.xyz *= 0.99;';
     }
     
     // Override this method to provide custom uniforms for position shader
@@ -19,6 +43,141 @@ export abstract class ParticleBehavior {
     // Override this method to provide custom uniforms for velocity shader
     getVelocityUniforms(): Record<string, any> {
         return {};
+    }
+    
+    // Generate uniform declarations from uniforms object
+    private generateUniformDeclarations(uniforms: Record<string, any>): string {
+        const declarations: string[] = [];
+        
+        for (const [name, uniform] of Object.entries(uniforms)) {
+            const value = uniform.value;
+            
+            if (typeof value === 'number') {
+                declarations.push(`uniform float ${name};`);
+            } else if (value && typeof value === 'object') {
+                // Check for THREE.Vector3
+                if (value.isVector3 || (typeof value.x === 'number' && typeof value.y === 'number' && typeof value.z === 'number')) {
+                    declarations.push(`uniform vec3 ${name};`);
+                }
+                // Check for THREE.Vector2
+                else if (value.isVector2 || (typeof value.x === 'number' && typeof value.y === 'number' && !('z' in value))) {
+                    declarations.push(`uniform vec2 ${name};`);
+                }
+                // Check for THREE.Color
+                else if (value.isColor || (typeof value.r === 'number' && typeof value.g === 'number' && typeof value.b === 'number')) {
+                    declarations.push(`uniform vec3 ${name};`);
+                }
+                // Check for arrays
+                else if (Array.isArray(value)) {
+                    if (value.length === 2 && typeof value[0] === 'number' && typeof value[1] === 'number') {
+                        declarations.push(`uniform vec2 ${name};`);
+                    } else if (value.length === 3 && typeof value[0] === 'number' && typeof value[1] === 'number' && typeof value[2] === 'number') {
+                        declarations.push(`uniform vec3 ${name};`);
+                    } else if (value.length === 4 && typeof value[0] === 'number' && typeof value[1] === 'number' && typeof value[2] === 'number' && typeof value[3] === 'number') {
+                        declarations.push(`uniform vec4 ${name};`);
+                    }
+                }
+            }
+        }
+        
+        return declarations.join('\n');
+    }
+    
+    // Generate boundary shader code
+    private getBoundaryShader(): string {
+        const boundary = this.getBoundaryConfig();
+        
+        if (boundary.type === 'none') {
+            return '';
+        }
+        
+        // Format numbers as floats for GLSL
+        const formatFloat = (n: number): string => {
+            return n.toFixed(1);
+        };
+        
+        const minX = formatFloat(boundary.min[0]);
+        const minY = formatFloat(boundary.min[1]);
+        const minZ = formatFloat(boundary.min[2]);
+        const maxX = formatFloat(boundary.max[0]);
+        const maxY = formatFloat(boundary.max[1]);
+        const maxZ = formatFloat(boundary.max[2]);
+        
+        if (boundary.type === 'wrap') {
+            return /*glsl*/ `
+                // Wrap around boundaries
+                if (pos.x > ${maxX}) pos.x = ${minX};
+                if (pos.x < ${minX}) pos.x = ${maxX};
+                if (pos.y > ${maxY}) pos.y = ${minY};
+                if (pos.y < ${minY}) pos.y = ${maxY};
+                if (pos.z > ${maxZ}) pos.z = ${minZ};
+                if (pos.z < ${minZ}) pos.z = ${maxZ};
+            `;
+        }
+        
+        // Bounce type
+        const bounceFactor = formatFloat(boundary.bounceFactor || 0.8);
+        return /*glsl*/ `
+            // Boundary conditions - bounce
+            if (pos.x > ${maxX}) { pos.x = ${maxX}; vel.x *= -${bounceFactor}; }
+            if (pos.x < ${minX}) { pos.x = ${minX}; vel.x *= -${bounceFactor}; }
+            if (pos.y > ${maxY}) { pos.y = ${maxY}; vel.y *= -${bounceFactor}; }
+            if (pos.y < ${minY}) { pos.y = ${minY}; vel.y *= -${bounceFactor}; }
+            if (pos.z > ${maxZ}) { pos.z = ${maxZ}; vel.z *= -${bounceFactor}; }
+            if (pos.z < ${minZ}) { pos.z = ${minZ}; vel.z *= -${bounceFactor}; }
+        `;
+    }
+    
+    // Base position shader template with composition
+    getPositionShader(): string {
+        const positionUniforms = this.getPositionUniforms();
+        const uniformDeclarations = this.generateUniformDeclarations(positionUniforms);
+        
+        return /*glsl*/ `
+            uniform float time;
+            uniform float delta;
+${uniformDeclarations ? '            ' + uniformDeclarations.split('\n').join('\n            ') + '\n' : ''}
+            void main() {
+                vec2 uv = gl_FragCoord.xy / resolution.xy;
+                
+                vec4 pos = texture2D(positionTex, uv);
+                vec4 vel = texture2D(velocityTex, uv);
+                
+                // Position update logic (injected by behavior)
+                ${this.getPositionUpdateLogic()}
+                
+                // Boundary handling (injected by behavior)
+                ${this.getBoundaryShader()}
+                
+                // Update age
+                pos.w = mod(pos.w + delta, 1.0);
+                
+                gl_FragColor = pos;
+            }
+        `;
+    }
+    
+    // Base velocity shader template with composition
+    getVelocityShader(): string {
+        const velocityUniforms = this.getVelocityUniforms();
+        const uniformDeclarations = this.generateUniformDeclarations(velocityUniforms);
+        
+        return /*glsl*/ `
+            uniform float time;
+            uniform float delta;
+${uniformDeclarations ? '            ' + uniformDeclarations.split('\n').join('\n            ') + '\n' : ''}
+            void main() {
+                vec2 uv = gl_FragCoord.xy / resolution.xy;
+                
+                vec4 vel = texture2D(velocityTex, uv);
+                vec4 pos = texture2D(positionTex, uv);
+                
+                // Velocity update logic (injected by behavior)
+                ${this.getVelocityUpdateLogic()}
+                
+                gl_FragColor = vel;
+            }
+        `;
     }
 }
 
@@ -36,6 +195,15 @@ export class GravityBehavior extends ParticleBehavior {
         return 'Gravity';
     }
 
+    protected getBoundaryConfig(): BoundaryConfig {
+        return {
+            type: 'bounce',
+            min: [-10.0, -10.0, -10.0],
+            max: [10.0, 10.0, 10.0],
+            bounceFactor: 0.8
+        };
+    }
+
     getVelocityUniforms(): Record<string, any> {
         return {
             gravity: { value: this.gravity },
@@ -44,62 +212,18 @@ export class GravityBehavior extends ParticleBehavior {
         };
     }
 
-    getPositionShader(): string {
+    protected getVelocityUpdateLogic(): string {
         return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
+            // Apply gravity
+            vel.y += gravity * delta;
             
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 pos = texture2D(positionTex, uv);
-                vec4 vel = texture2D(velocityTex, uv);
-                
-                // Update position with velocity
-                pos.xyz += vel.xyz * delta;
-                
-                // Boundary conditions - bounce
-                if (pos.x > 10.0) { pos.x = 10.0; vel.x *= -0.8; }
-                if (pos.x < -10.0) { pos.x = -10.0; vel.x *= -0.8; }
-                if (pos.y > 10.0) { pos.y = 10.0; vel.y *= -0.8; }
-                if (pos.y < -10.0) { pos.y = -10.0; vel.y *= -0.8; }
-                if (pos.z > 10.0) { pos.z = 10.0; vel.z *= -0.8; }
-                if (pos.z < -10.0) { pos.z = -10.0; vel.z *= -0.8; }
-                
-                pos.w = mod(pos.w + delta, 1.0);
-                
-                gl_FragColor = pos;
-            }
-        `;
-    }
-
-    getVelocityShader(): string {
-        return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
-            uniform float gravity;
-            uniform float damping;
-            uniform float turbulence;
+            // Apply damping
+            vel.xyz *= damping;
             
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 vel = texture2D(velocityTex, uv);
-                vec4 pos = texture2D(positionTex, uv);
-                
-                // Apply gravity
-                vel.y += gravity * delta;
-                
-                // Apply damping
-                vel.xyz *= damping;
-                
-                // Add some turbulence
-                float noise = sin(pos.x * 0.1 + time) * cos(pos.z * 0.1 + time * 0.7) * turbulence;
-                vel.x += noise;
-                vel.z += noise;
-                
-                gl_FragColor = vel;
-            }
+            // Add some turbulence
+            float noise = sin(pos.x * 0.1 + time) * cos(pos.z * 0.1 + time * 0.7) * turbulence;
+            vel.x += noise;
+            vel.z += noise;
         `;
     }
 }
@@ -123,60 +247,18 @@ export class SwirlBehavior extends ParticleBehavior {
         };
     }
 
-    getPositionShader(): string {
+    protected getVelocityUpdateLogic(): string {
         return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
+            // Create swirling motion
+            float dist = length(pos.xy);
+            float angle = atan(pos.y, pos.x) + time * speed;
             
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 pos = texture2D(positionTex, uv);
-                vec4 vel = texture2D(velocityTex, uv);
-                
-                pos.xyz += vel.xyz * delta;
-                
-                // Wrap around boundaries
-                if (pos.x > 10.0) pos.x = -10.0;
-                if (pos.x < -10.0) pos.x = 10.0;
-                if (pos.y > 10.0) pos.y = -10.0;
-                if (pos.y < -10.0) pos.y = 10.0;
-                if (pos.z > 10.0) pos.z = -10.0;
-                if (pos.z < -10.0) pos.z = 10.0;
-                
-                pos.w = mod(pos.w + delta, 1.0);
-                
-                gl_FragColor = pos;
-            }
-        `;
-    }
-
-    getVelocityShader(): string {
-        return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
-            uniform float speed;
-            uniform float radius;
+            vel.x = cos(angle) * radius;
+            vel.y = sin(angle) * radius;
+            vel.z = sin(dist * 0.1 + time) * 0.05;
             
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 vel = texture2D(velocityTex, uv);
-                vec4 pos = texture2D(positionTex, uv);
-                
-                // Create swirling motion
-                float dist = length(pos.xy);
-                float angle = atan(pos.y, pos.x) + time * speed;
-                
-                vel.x = cos(angle) * radius;
-                vel.y = sin(angle) * radius;
-                vel.z = sin(dist * 0.1 + time) * 0.05;
-                
-                // Add some damping
-                vel.xyz *= 0.98;
-                
-                gl_FragColor = vel;
-            }
+            // Add some damping
+            vel.xyz *= 0.98;
         `;
     }
 }
@@ -194,61 +276,28 @@ export class AttractorBehavior extends ParticleBehavior {
         return 'Attractor';
     }
 
-    getPositionShader(): string {
-        return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
-            
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 pos = texture2D(positionTex, uv);
-                vec4 vel = texture2D(velocityTex, uv);
-                
-                pos.xyz += vel.xyz * delta;
-                
-                // Wrap around boundaries
-                if (pos.x > 10.0) pos.x = -10.0;
-                if (pos.x < -10.0) pos.x = 10.0;
-                if (pos.y > 10.0) pos.y = -10.0;
-                if (pos.y < -10.0) pos.y = 10.0;
-                if (pos.z > 10.0) pos.z = -10.0;
-                if (pos.z < -10.0) pos.z = 10.0;
-                
-                pos.w = mod(pos.w + delta, 1.0);
-                
-                gl_FragColor = pos;
-            }
-        `;
+    getVelocityUniforms(): Record<string, any> {
+        return {
+            attractorPosition: { value: new THREE.Vector3(...this.attractorPosition) },
+            strength: { value: this.strength },
+            damping: { value: this.damping }
+        };
     }
 
-    getVelocityShader(): string {
+    protected getVelocityUpdateLogic(): string {
         return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
+            // Create attractor at specified position
+            vec3 force = attractorPosition - pos.xyz;
+            float dist = length(force);
             
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 vel = texture2D(velocityTex, uv);
-                vec4 pos = texture2D(positionTex, uv);
-                
-                // Create attractor at specified position
-                vec3 attractor = vec3(${this.attractorPosition[0]}, ${this.attractorPosition[1]}, ${this.attractorPosition[2]});
-                vec3 force = attractor - pos.xyz;
-                float dist = length(force);
-                
-                if (dist > 0.1) {
-                    force = normalize(force) * ${this.strength} / (dist * dist);
-                }
-                
-                vel.xyz += force * delta;
-                
-                // Apply damping
-                vel.xyz *= ${this.damping};
-                
-                gl_FragColor = vel;
+            if (dist > 0.1) {
+                force = normalize(force) * strength / (dist * dist);
             }
+            
+            vel.xyz += force * delta;
+            
+            // Apply damping
+            vel.xyz *= damping;
         `;
     }
 }
@@ -266,54 +315,22 @@ export class WaveBehavior extends ParticleBehavior {
         return 'Wave';
     }
 
-    getPositionShader(): string {
-        return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
-            
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 pos = texture2D(positionTex, uv);
-                vec4 vel = texture2D(velocityTex, uv);
-                
-                pos.xyz += vel.xyz * delta;
-                
-                // Wrap around boundaries
-                if (pos.x > 10.0) pos.x = -10.0;
-                if (pos.x < -10.0) pos.x = 10.0;
-                if (pos.y > 10.0) pos.y = -10.0;
-                if (pos.y < -10.0) pos.y = 10.0;
-                if (pos.z > 10.0) pos.z = -10.0;
-                if (pos.z < -10.0) pos.z = 10.0;
-                
-                pos.w = mod(pos.w + delta, 1.0);
-                
-                gl_FragColor = pos;
-            }
-        `;
+    getVelocityUniforms(): Record<string, any> {
+        return {
+            amplitude: { value: this.amplitude },
+            frequency: { value: this.frequency },
+            speed: { value: this.speed }
+        };
     }
 
-    getVelocityShader(): string {
+    protected getVelocityUpdateLogic(): string {
         return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
+            // Create wave motion
+            float wave = sin(pos.x * frequency + time * speed) * amplitude;
+            vel.y = wave;
             
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 vel = texture2D(velocityTex, uv);
-                vec4 pos = texture2D(positionTex, uv);
-                
-                // Create wave motion
-                float wave = sin(pos.x * ${this.frequency} + time * ${this.speed}) * ${this.amplitude};
-                vel.y = wave;
-                
-                // Add some damping
-                vel.xyz *= 0.99;
-                
-                gl_FragColor = vel;
-            }
+            // Add some damping
+            vel.xyz *= 0.99;
         `;
     }
 }
@@ -331,60 +348,27 @@ export class ExplosionBehavior extends ParticleBehavior {
         return 'Explosion';
     }
 
-    getPositionShader(): string {
-        return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
-            
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 pos = texture2D(positionTex, uv);
-                vec4 vel = texture2D(velocityTex, uv);
-                
-                pos.xyz += vel.xyz * delta;
-                
-                // Wrap around boundaries
-                if (pos.x > 10.0) pos.x = -10.0;
-                if (pos.x < -10.0) pos.x = 10.0;
-                if (pos.y > 10.0) pos.y = -10.0;
-                if (pos.y < -10.0) pos.y = 10.0;
-                if (pos.z > 10.0) pos.z = -10.0;
-                if (pos.z < -10.0) pos.z = 10.0;
-                
-                pos.w = mod(pos.w + delta, 1.0);
-                
-                gl_FragColor = pos;
-            }
-        `;
+    getVelocityUniforms(): Record<string, any> {
+        return {
+            explosionCenter: { value: new THREE.Vector3(...this.explosionCenter) },
+            force: { value: this.force },
+            damping: { value: this.damping }
+        };
     }
 
-    getVelocityShader(): string {
+    protected getVelocityUpdateLogic(): string {
         return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
+            // Create explosion force from center
+            vec3 direction = pos.xyz - explosionCenter;
+            float dist = length(direction);
             
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 vel = texture2D(velocityTex, uv);
-                vec4 pos = texture2D(positionTex, uv);
-                
-                // Create explosion force from center
-                vec3 center = vec3(${this.explosionCenter[0]}, ${this.explosionCenter[1]}, ${this.explosionCenter[2]});
-                vec3 direction = pos.xyz - center;
-                float dist = length(direction);
-                
-                if (dist > 0.01) {
-                    direction = normalize(direction);
-                    vel.xyz += direction * ${this.force} * delta / (dist + 0.1);
-                }
-                
-                // Apply damping
-                vel.xyz *= ${this.damping};
-                
-                gl_FragColor = vel;
+            if (dist > 0.01) {
+                direction = normalize(direction);
+                vel.xyz += direction * force * delta / (dist + 0.1);
             }
+            
+            // Apply damping
+            vel.xyz *= damping;
         `;
     }
 }
@@ -413,63 +397,19 @@ export class MagneticFieldBehavior extends ParticleBehavior {
         };
     }
 
-    getPositionShader(): string {
+    protected getVelocityUpdateLogic(): string {
         return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
+            // Apply magnetic field force (Lorentz force)
+            vec3 crossProduct = cross(vel.xyz, fieldDirection);
+            vel.xyz += crossProduct * fieldStrength * delta;
             
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 pos = texture2D(positionTex, uv);
-                vec4 vel = texture2D(velocityTex, uv);
-                
-                pos.xyz += vel.xyz * delta;
-                
-                // Wrap around boundaries
-                if (pos.x > 10.0) pos.x = -10.0;
-                if (pos.x < -10.0) pos.x = 10.0;
-                if (pos.y > 10.0) pos.y = -10.0;
-                if (pos.y < -10.0) pos.y = 10.0;
-                if (pos.z > 10.0) pos.z = -10.0;
-                if (pos.z < -10.0) pos.z = 10.0;
-                
-                pos.w = mod(pos.w + delta, 1.0);
-                
-                gl_FragColor = pos;
-            }
-        `;
-    }
-
-    getVelocityShader(): string {
-        return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
-            uniform float fieldStrength;
-            uniform vec3 fieldDirection;
-            uniform float turbulence;
-            uniform float damping;
+            // Add turbulence
+            float noise1 = sin(pos.x * 0.1 + time) * cos(pos.z * 0.1 + time * 0.7);
+            float noise2 = sin(pos.y * 0.15 + time * 1.3) * cos(pos.x * 0.12 + time * 0.5);
+            vel.xyz += vec3(noise1, noise2, noise1 * noise2) * turbulence * delta;
             
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 vel = texture2D(velocityTex, uv);
-                vec4 pos = texture2D(positionTex, uv);
-                
-                // Apply magnetic field force (Lorentz force)
-                vec3 crossProduct = cross(vel.xyz, fieldDirection);
-                vel.xyz += crossProduct * fieldStrength * delta;
-                
-                // Add turbulence
-                float noise1 = sin(pos.x * 0.1 + time) * cos(pos.z * 0.1 + time * 0.7);
-                float noise2 = sin(pos.y * 0.15 + time * 1.3) * cos(pos.x * 0.12 + time * 0.5);
-                vel.xyz += vec3(noise1, noise2, noise1 * noise2) * turbulence * delta;
-                
-                // Apply damping
-                vel.xyz *= damping;
-                
-                gl_FragColor = vel;
-            }
+            // Apply damping
+            vel.xyz *= damping;
         `;
     }
 }
@@ -488,6 +428,14 @@ export class SpringBehavior extends ParticleBehavior {
         return 'Spring';
     }
 
+    protected getBoundaryConfig(): BoundaryConfig {
+        return {
+            type: 'none',
+            min: [0, 0, 0],
+            max: [0, 0, 0]
+        };
+    }
+
     getVelocityUniforms(): Record<string, any> {
         return {
             springConstant: { value: this.springConstant },
@@ -497,54 +445,19 @@ export class SpringBehavior extends ParticleBehavior {
         };
     }
 
-    getPositionShader(): string {
+    protected getVelocityUpdateLogic(): string {
         return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
+            // Calculate spring force
+            vec3 displacement = pos.xyz - center;
+            float distance = length(displacement);
             
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 pos = texture2D(positionTex, uv);
-                vec4 vel = texture2D(velocityTex, uv);
-                
-                pos.xyz += vel.xyz * delta;
-                pos.w = mod(pos.w + delta, 1.0);
-                
-                gl_FragColor = pos;
+            if (distance > 0.001) {
+                vec3 springForce = -normalize(displacement) * springConstant * (distance - restLength);
+                vel.xyz += springForce * delta;
             }
-        `;
-    }
-
-    getVelocityShader(): string {
-        return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
-            uniform float springConstant;
-            uniform float restLength;
-            uniform float damping;
-            uniform vec3 center;
             
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 vel = texture2D(velocityTex, uv);
-                vec4 pos = texture2D(positionTex, uv);
-                
-                // Calculate spring force
-                vec3 displacement = pos.xyz - center;
-                float distance = length(displacement);
-                
-                if (distance > 0.001) {
-                    vec3 springForce = -normalize(displacement) * springConstant * (distance - restLength);
-                    vel.xyz += springForce * delta;
-                }
-                
-                // Apply damping
-                vel.xyz *= damping;
-                
-                gl_FragColor = vel;
-            }
+            // Apply damping
+            vel.xyz *= damping;
         `;
     }
 }
@@ -572,61 +485,17 @@ export class NoiseFieldBehavior extends ParticleBehavior {
         };
     }
 
-    getPositionShader(): string {
+    protected getVelocityUpdateLogic(): string {
         return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
+            // Generate 3D noise field
+            float noiseX = sin(pos.x * noiseScale + time * timeScale) * cos(pos.y * noiseScale + time * timeScale * 0.7);
+            float noiseY = sin(pos.y * noiseScale + time * timeScale * 1.3) * cos(pos.z * noiseScale + time * timeScale * 0.5);
+            float noiseZ = sin(pos.z * noiseScale + time * timeScale * 0.9) * cos(pos.x * noiseScale + time * timeScale * 1.1);
             
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 pos = texture2D(positionTex, uv);
-                vec4 vel = texture2D(velocityTex, uv);
-                
-                pos.xyz += vel.xyz * delta;
-                
-                // Wrap around boundaries
-                if (pos.x > 10.0) pos.x = -10.0;
-                if (pos.x < -10.0) pos.x = 10.0;
-                if (pos.y > 10.0) pos.y = -10.0;
-                if (pos.y < -10.0) pos.y = 10.0;
-                if (pos.z > 10.0) pos.z = -10.0;
-                if (pos.z < -10.0) pos.z = 10.0;
-                
-                pos.w = mod(pos.w + delta, 1.0);
-                
-                gl_FragColor = pos;
-            }
-        `;
-    }
-
-    getVelocityShader(): string {
-        return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
-            uniform float noiseScale;
-            uniform float noiseStrength;
-            uniform float timeScale;
-            uniform float damping;
+            vel.xyz += vec3(noiseX, noiseY, noiseZ) * noiseStrength * delta;
             
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 vel = texture2D(velocityTex, uv);
-                vec4 pos = texture2D(positionTex, uv);
-                
-                // Generate 3D noise field
-                float noiseX = sin(pos.x * noiseScale + time * timeScale) * cos(pos.y * noiseScale + time * timeScale * 0.7);
-                float noiseY = sin(pos.y * noiseScale + time * timeScale * 1.3) * cos(pos.z * noiseScale + time * timeScale * 0.5);
-                float noiseZ = sin(pos.z * noiseScale + time * timeScale * 0.9) * cos(pos.x * noiseScale + time * timeScale * 1.1);
-                
-                vel.xyz += vec3(noiseX, noiseY, noiseZ) * noiseStrength * delta;
-                
-                // Apply damping
-                vel.xyz *= damping;
-                
-                gl_FragColor = vel;
-            }
+            // Apply damping
+            vel.xyz *= damping;
         `;
     }
 }
@@ -637,40 +506,11 @@ export class DefaultBehavior extends ParticleBehavior {
         return 'Default';
     }
 
-    getPositionShader(): string {
-        return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
-            
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 pos = texture2D(positionTex, uv);
-                vec4 vel = texture2D(velocityTex, uv);
-                
-                pos.xyz += vel.xyz * delta;
-                pos.w = mod(pos.w + delta, 1.0);
-                
-                gl_FragColor = pos;
-            }
-        `;
-    }
-
-    getVelocityShader(): string {
-        return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
-            
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 vel = texture2D(velocityTex, uv);
-                
-                // Simple damping
-                vel.xyz *= 0.99;
-                
-                gl_FragColor = vel;
-            }
-        `;
+    protected getBoundaryConfig(): BoundaryConfig {
+        return {
+            type: 'none',
+            min: [0, 0, 0],
+            max: [0, 0, 0]
+        };
     }
 }

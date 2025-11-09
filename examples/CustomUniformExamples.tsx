@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import {
     ParticleSystem,
@@ -12,6 +12,7 @@ import {
 } from '../index';
 
 // Custom behavior that demonstrates custom uniform usage
+// Now uses the new shader composition system!
 class CustomUniformBehavior extends ParticleBehavior {
     public uniforms: Record<string, any>;
 
@@ -34,73 +35,41 @@ class CustomUniformBehavior extends ParticleBehavior {
         return 'Custom Uniform';
     }
 
+    // Override boundary config for custom boundaries
+    protected getBoundaryConfig() {
+        return {
+            type: 'wrap' as const,
+            min: [-5.0, -5.0, -5.0] as [number, number, number],
+            max: [5.0, 5.0, 5.0] as [number, number, number]
+        };
+    }
+
     // Provide custom uniforms for the velocity shader
     getVelocityUniforms(): Record<string, any> {
         return this.uniforms;
     }
 
-    getPositionShader(): string {
+    // Use the new composition system - just override the velocity logic!
+    protected getVelocityUpdateLogic(): string {
         return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
+            // Use custom uniforms to create wave motion
+            float wave = sin(pos.x * waveSpeed + time) * waveAmplitude;
+            vel.y = wave;
             
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 pos = texture2D(positionTex, uv);
-                vec4 vel = texture2D(velocityTex, uv);
-                
-                pos.xyz += vel.xyz * delta;
-                
-                // Wrap around boundaries
-                if (pos.x > 5.0) pos.x = -5.0;
-                if (pos.x < -5.0) pos.x = 5.0;
-                if (pos.y > 5.0) pos.y = -5.0;
-                if (pos.y < -5.0) pos.y = 5.0;
-                if (pos.z > 5.0) pos.z = -5.0;
-                if (pos.z < -5.0) pos.z = 5.0;
-                
-                pos.w = mod(pos.w + delta, 1.0);
-                
-                gl_FragColor = pos;
-            }
-        `;
-    }
-
-    getVelocityShader(): string {
-        return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
-            uniform float waveSpeed;      // Custom uniform
-            uniform float waveAmplitude;  // Custom uniform
-            uniform float colorShift;     // Custom uniform
+            // Use colorShift uniform to affect horizontal movement
+            vel.x = sin(time * 0.5 + colorShift) * 0.1;
             
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 vel = texture2D(velocityTex, uv);
-                vec4 pos = texture2D(positionTex, uv);
-                
-                // Use custom uniforms to create wave motion
-                float wave = sin(pos.x * waveSpeed + time) * waveAmplitude;
-                vel.y = wave;
-                
-                // Use colorShift uniform to affect horizontal movement
-                vel.x = sin(time * 0.5 + colorShift) * 0.1;
-                
-                // Add some vertical oscillation
-                vel.z = cos(pos.y * 0.5 + time * 0.3) * 0.05;
-                
-                // Damping
-                vel.xyz *= 0.98;
-                
-                gl_FragColor = vel;
-            }
+            // Add some vertical oscillation
+            vel.z = cos(pos.y * 0.5 + time * 0.3) * 0.05;
+            
+            // Damping
+            vel.xyz *= 0.98;
         `;
     }
 }
 
 // Behavior with multiple custom uniforms
+// Now uses the new shader composition system!
 class MultiUniformBehavior extends ParticleBehavior {
     public uniforms: Record<string, any>;
 
@@ -127,76 +96,41 @@ class MultiUniformBehavior extends ParticleBehavior {
         return 'Multi Uniform';
     }
 
+    // Override boundary config for custom boundaries
+    protected getBoundaryConfig() {
+        return {
+            type: 'wrap' as const,
+            min: [-8.0, -8.0, -8.0] as [number, number, number],
+            max: [8.0, 8.0, 8.0] as [number, number, number]
+        };
+    }
+
     getVelocityUniforms(): Record<string, any> {
         return this.uniforms;
     }
 
-    getPositionShader(): string {
+    // Use the new composition system - just override the velocity logic!
+    protected getVelocityUpdateLogic(): string {
         return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
+            // Calculate distance from center
+            float dx = pos.x - centerX;
+            float dy = pos.y - centerY;
+            float dist = sqrt(dx * dx + dy * dy);
             
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 pos = texture2D(positionTex, uv);
-                vec4 vel = texture2D(velocityTex, uv);
-                
-                pos.xyz += vel.xyz * delta;
-                
-                // Wrap around boundaries
-                if (pos.x > 8.0) pos.x = -8.0;
-                if (pos.x < -8.0) pos.x = 8.0;
-                if (pos.y > 8.0) pos.y = -8.0;
-                if (pos.y < -8.0) pos.y = 8.0;
-                if (pos.z > 8.0) pos.z = -8.0;
-                if (pos.z < -8.0) pos.z = 8.0;
-                
-                pos.w = mod(pos.w + delta, 1.0);
-                
-                gl_FragColor = pos;
-            }
-        `;
-    }
-
-    getVelocityShader(): string {
-        return /*glsl*/ `
-            uniform float time;
-            uniform float delta;
-            uniform float spiralSpeed;    // Custom uniform
-            uniform float spiralRadius;   // Custom uniform
-            uniform float noiseStrength;  // Custom uniform
-            uniform float centerX;        // Custom uniform
-            uniform float centerY;        // Custom uniform
+            // Create spiral motion using custom uniforms
+            float angle = atan(dy, dx) + time * spiralSpeed;
+            float spiralForce = spiralRadius / (dist + 0.1);
             
-            void main() {
-                vec2 uv = gl_FragCoord.xy / resolution.xy;
-                
-                vec4 vel = texture2D(velocityTex, uv);
-                vec4 pos = texture2D(positionTex, uv);
-                
-                // Calculate distance from center
-                float dx = pos.x - centerX;
-                float dy = pos.y - centerY;
-                float dist = sqrt(dx * dx + dy * dy);
-                
-                // Create spiral motion using custom uniforms
-                float angle = atan(dy, dx) + time * spiralSpeed;
-                float spiralForce = spiralRadius / (dist + 0.1);
-                
-                vel.x = cos(angle) * spiralForce * 0.1;
-                vel.y = sin(angle) * spiralForce * 0.1;
-                
-                // Add noise using custom uniform
-                float noise = sin(pos.x * 0.1 + time) * cos(pos.z * 0.1 + time * 0.7);
-                vel.x += noise * noiseStrength;
-                vel.z += noise * noiseStrength * 0.5;
-                
-                // Damping
-                vel.xyz *= 0.99;
-                
-                gl_FragColor = vel;
-            }
+            vel.x = cos(angle) * spiralForce * 0.1;
+            vel.y = sin(angle) * spiralForce * 0.1;
+            
+            // Add noise using custom uniform
+            float noise = sin(pos.x * 0.1 + time) * cos(pos.z * 0.1 + time * 0.7);
+            vel.x += noise * noiseStrength;
+            vel.z += noise * noiseStrength * 0.5;
+            
+            // Damping
+            vel.xyz *= 0.99;
         `;
     }
 }
