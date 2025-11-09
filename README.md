@@ -4,10 +4,10 @@ A comprehensive, modular particle system library for React Three Fiber that allo
 
 ## Features
 
-- **Modular Architecture**: Well-organized modules for configurations, behaviors, and shaders
+- **Modular Architecture**: Well-organized modules for configurations and behaviors
 - **Class-Based Customization**: Extend base classes to create custom particle configurations and behaviors
-- **Built-in Patterns**: Pre-built configurations for common particle patterns
-- **Custom Shaders**: Support for custom GLSL shaders with utility functions
+- **Built-in Patterns**: Pre-built configurations and behaviors for common particle patterns
+- **Shader Composition**: Easy custom shader logic without writing full shaders
 - **TypeScript Support**: Full type safety and IntelliSense support
 - **Performance Optimized**: GPU-based particle simulation using WebGL
 - **Easy Integration**: Simple API that works seamlessly with React Three Fiber
@@ -15,7 +15,14 @@ A comprehensive, modular particle system library for React Three Fiber that allo
 ## Quick Start
 
 ```tsx
-import { ParticleSystem, SpherePositionConfig, RadialVelocityConfig, GradientColorConfig } from './particle-system';
+import { 
+  ParticleSystem, 
+  SpherePositionConfig, 
+  RadialVelocityConfig, 
+  GradientColorConfig,
+  UniformSizeConfig,
+  GravityBehavior
+} from './particle-system';
 
 function MyScene() {
   return (
@@ -30,73 +37,6 @@ function MyScene() {
       behavior={new GravityBehavior()}
     />
   );
-}
-```
-
-## Architecture
-
-### Core Modules
-
-1. **Configuration Module** (`./config/`): Handles initial particle data (position, velocity, color, size)
-2. **Behavior Module** (`./behaviors/`): Defines particle movement and interaction using shader composition
-3. **Main Component** (`ParticleSystem.tsx`): The main React component that orchestrates everything
-
-### Configuration Classes
-
-#### Position Configurations
-- `GridPositionConfig`: Arranges particles in a grid pattern
-- `RandomPositionConfig`: Randomly distributes particles within bounds
-- `SpherePositionConfig`: Positions particles on a sphere surface
-- `CubePositionConfig`: Randomly distributes particles within a cube
-
-#### Velocity Configurations
-- `ZeroVelocityConfig`: No initial velocity
-- `RandomVelocityConfig`: Random velocities with specified magnitude
-- `RadialVelocityConfig`: Velocities pointing outward from center
-- `TangentialVelocityConfig`: Velocities perpendicular to radial direction
-
-#### Color Configurations
-- `UniformColorConfig`: Single color for all particles
-- `RandomColorConfig`: Random colors within specified ranges
-- `GradientColorConfig`: Smooth color transition across particles
-
-#### Size Configurations
-- `UniformSizeConfig`: Same size for all particles
-- `RandomSizeConfig`: Random sizes within specified range
-
-### Behavior Classes
-
-#### Built-in Behaviors
-- `DefaultBehavior`: Simple movement with damping
-- `GravityBehavior`: Gravity simulation with bouncing boundaries
-- `SwirlBehavior`: Swirling motion around center
-- `AttractorBehavior`: Particles attracted to a specific point
-- `WaveBehavior`: Wave-like motion
-- `ExplosionBehavior`: Explosion-like outward force
-
-## Creating Custom Configurations
-
-### Custom Position Configuration
-
-```tsx
-class SpiralPositionConfig extends ParticlePositionConfig {
-  constructor(
-    private radius: number = 2.0,
-    private height: number = 1.0,
-    private turns: number = 3.0
-  ) {
-    super();
-  }
-
-  generatePosition(index: number, totalCount: number, size: number): [number, number, number, number] {
-    const t = index / totalCount;
-    const angle = t * this.turns * Math.PI * 2;
-    const r = t * this.radius;
-    const x = Math.cos(angle) * r;
-    const y = t * this.height - this.height / 2;
-    const z = Math.sin(angle) * r;
-    return [x, y, z, 0.0];
-  }
 }
 ```
 
@@ -160,7 +100,7 @@ const behavior = new GravityBehavior(-0.1, 0.995, 0.05);
 // Parameters: gravity, damping, turbulence
 ```
 
-**Creating Custom Behavior (Modern Way - Recommended):**
+**Creating Custom Behavior:**
 
 ```tsx
 import { ParticleBehavior } from './particle-system';
@@ -293,13 +233,12 @@ function MyScene() {
 }
 ```
 
-## Complete Example: Custom Behavior with Dynamic Uniforms
+### Complete Example: Interactive Particles
 
 ```tsx
-import { ParticleBehavior } from './particle-system';
+import { ParticleBehavior, ParticleSystem, RandomPositionConfig, ZeroVelocityConfig, GradientColorConfig, UniformSizeConfig } from './particle-system';
 import { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { ParticleSystem, RandomPositionConfig, ZeroVelocityConfig, GradientColorConfig, UniformSizeConfig } from './particle-system';
 
 // Custom behavior with dynamic uniforms
 class InteractiveBehavior extends ParticleBehavior {
@@ -366,35 +305,61 @@ function InteractiveParticles() {
 }
 ```
 
+## Built-in Components
+
+### Configuration Classes
+
+#### Position Configurations
+- `GridPositionConfig`: Arranges particles in a grid pattern
+- `RandomPositionConfig`: Randomly distributes particles within bounds
+- `SpherePositionConfig`: Positions particles on a sphere surface
+- `CubePositionConfig`: Randomly distributes particles within a cube
+
+#### Velocity Configurations
+- `ZeroVelocityConfig`: No initial velocity
+- `RandomVelocityConfig`: Random velocities with specified magnitude
+- `RadialVelocityConfig`: Velocities pointing outward from center
+- `TangentialVelocityConfig`: Velocities perpendicular to radial direction
+
+#### Color Configurations
+- `UniformColorConfig`: Single color for all particles
+- `RandomColorConfig`: Random colors within specified ranges
+- `GradientColorConfig`: Smooth color transition across particles
+
+#### Size Configurations
+- `UniformSizeConfig`: Same size for all particles
+- `RandomSizeConfig`: Random sizes within specified range
+
+### Behavior Classes
+
+- `DefaultBehavior`: Simple movement with damping
+- `GravityBehavior`: Gravity simulation with bouncing boundaries
+- `SwirlBehavior`: Swirling motion around center
+- `AttractorBehavior`: Particles attracted to a specific point
+- `WaveBehavior`: Wave-like motion
+- `ExplosionBehavior`: Explosion-like outward force
+- `MagneticFieldBehavior`: Magnetic field simulation
+- `SpringBehavior`: Spring physics simulation
+- `NoiseFieldBehavior`: Noise-based field motion
+
 ## Examples
 
-### Basic Usage
+See the `examples/` directory for complete working examples:
+- `BasicExamples.tsx`: Simple examples with built-in behaviors
+- `AdvancedExamples.tsx`: Advanced examples with custom behaviors and dynamic uniforms
 
 ```tsx
-import { BasicExamples } from './examples/BasicExamples';
-
-function App() {
-  return <BasicExamples />;
-}
-```
-
-### Advanced Examples
-
-```tsx
+import BasicExamples from './examples/BasicExamples';
 import AdvancedExamples from './examples/AdvancedExamples';
 
 function App() {
-  return <AdvancedExamples />;
-}
-```
-
-### Advanced Features
-
-```tsx
-import AdvancedExamples from './examples/AdvancedExamples';
-
-function App() {
-  return <AdvancedExamples />;
+  return (
+    <>
+      <BasicExamples />
+      {/* or */}
+      <AdvancedExamples />
+    </>
+  );
 }
 ```
 
@@ -453,6 +418,7 @@ abstract class ParticleSizeConfig {
 ```
 
 #### ParticleBehavior
+
 ```tsx
 abstract class ParticleBehavior {
   abstract getName(): string;
@@ -470,7 +436,7 @@ abstract class ParticleBehavior {
   
   // These are automatically generated (don't override)
   getPositionShader(): string;  // Complete position shader
-  getVelocityShader(): string; // Complete velocity shader
+  getVelocityShader(): string;   // Complete velocity shader
 }
 ```
 
