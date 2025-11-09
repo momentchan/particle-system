@@ -12,8 +12,10 @@ import {
     ZeroVelocityConfig,
     GradientColorConfig,
     UniformSizeConfig,
-    RandomVelocityConfig
+    RandomVelocityConfig,
+    SwirlBehavior
 } from '../index';
+import type { ParticleSystemRef } from '../ParticleSystem';
 
 // Interactive behavior that responds to mouse position using the new composition system
 class InteractiveBehavior extends ParticleBehavior {
@@ -293,9 +295,100 @@ export default function AdvancedExamples() {
         size: new UniformSizeConfig(0.8)
     }), []);
 
+    const customMaterialConfig = useMemo(() => ({
+        position: new RandomPositionConfig({ x: [-4, 4], y: [-4, 4], z: [-2, 2] }),
+        velocity: new ZeroVelocityConfig(),
+        color: new GradientColorConfig([0.2, 0.5, 1], [1, 0.3, 0.5]),
+        size: new UniformSizeConfig(1.5)
+    }), []);
+
     // Memoize behavior objects to prevent recreation on every render
     const morphingBehavior = useMemo(() => new MorphingBehavior(0.3), []);
     const fireBehavior = useMemo(() => new FireBehavior(), []);
+    const swirlBehavior = useMemo(() => new SwirlBehavior(0.8, 1.2), []);
+
+    // Create custom material with glow effect
+    const customMaterial = useMemo(() => {
+        const material = new THREE.ShaderMaterial({
+            uniforms: {
+                positionTex: { value: null },
+                velocityTex: { value: null },
+                time: { value: 0.0 },
+                sizeMultiplier: { value: 1.0 },
+                glowIntensity: { value: 2.0 },
+                glowColor: { value: new THREE.Color(0.5, 0.8, 1.0) }
+            },
+            vertexShader: /*glsl*/ `
+                uniform sampler2D positionTex;
+                uniform sampler2D velocityTex;
+                uniform float time;
+                uniform float sizeMultiplier;
+                
+                attribute float size;
+                
+                varying vec3 vColor;
+                varying float vAge;
+                varying vec3 vVelocity;
+                
+                void main() {
+                    vec4 pos = texture2D(positionTex, uv);
+                    vec4 vel = texture2D(velocityTex, uv);
+                    
+                    vColor = color;
+                    vAge = pos.w;
+                    vVelocity = vel.xyz;
+                    
+                    vec4 mvPosition = modelViewMatrix * vec4(pos.xyz, 1.0);
+                    gl_PointSize = size * sizeMultiplier * (300.0 / -mvPosition.z) * (1.0 + length(vel.xyz) * 2.0);
+                    gl_Position = projectionMatrix * mvPosition;
+                }
+            `,
+            fragmentShader: /*glsl*/ `
+                uniform float time;
+                uniform float glowIntensity;
+                uniform vec3 glowColor;
+                
+                varying vec3 vColor;
+                varying float vAge;
+                varying vec3 vVelocity;
+                
+                void main() {
+                    vec2 center = gl_PointCoord - vec2(0.5);
+                    float dist = length(center);
+                    
+                    // Create soft circular particles with glow
+                    float alpha = 1.0 - smoothstep(0.0, 0.5, dist);
+                    
+                    // Add velocity-based glow
+                    float velocityGlow = length(vVelocity) * 0.5;
+                    
+                    // Pulsing effect based on age
+                    float pulse = sin(vAge * 3.14159 * 2.0 + time * 2.0) * 0.3 + 0.7;
+                    
+                    // Mix particle color with glow color based on velocity
+                    vec3 finalColor = mix(vColor, glowColor, velocityGlow * glowIntensity);
+                    
+                    // Apply pulse to alpha
+                    alpha *= pulse;
+                    
+                    // Add outer glow
+                    float outerGlow = 1.0 - smoothstep(0.3, 0.7, dist);
+                    finalColor += glowColor * outerGlow * 0.5 * glowIntensity;
+                    
+                    gl_FragColor = vec4(finalColor, alpha);
+                }
+            `,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            vertexColors: true
+        });
+        
+        return material;
+    }, []);
+
+    // Ref for custom material particle system to update uniforms
+    const customMaterialSystemRef = useRef<ParticleSystemRef>(null);
 
     // Update uniforms dynamically
     useFrame((state) => {
@@ -310,6 +403,23 @@ export default function AdvancedExamples() {
         if (customUniformBehaviorRef.current) {
             const time = state.clock.elapsedTime;
             customUniformBehaviorRef.current.uniforms.colorShift.value = Math.sin(time * 0.5) * 2.0;
+        }
+
+        // Update custom material uniforms
+        if (customMaterial && customMaterialSystemRef.current) {
+            const positionTex = customMaterialSystemRef.current.getParticleTexture();
+            const velocityTex = customMaterialSystemRef.current.getVelocityTexture();
+            
+            if (positionTex) {
+                customMaterial.uniforms.positionTex.value = positionTex;
+            }
+            if (velocityTex) {
+                customMaterial.uniforms.velocityTex.value = velocityTex;
+            }
+            customMaterial.uniforms.time.value = state.clock.elapsedTime;
+            
+            // Animate glow intensity
+            customMaterial.uniforms.glowIntensity.value = 1.5 + Math.sin(state.clock.elapsedTime * 0.8) * 0.5;
         }
     });
 
@@ -341,6 +451,15 @@ export default function AdvancedExamples() {
                 count={256}
                 config={morphingConfig}
                 behavior={morphingBehavior}
+            />
+
+            {/* Example 5: Custom material with glow effect */}
+            <ParticleSystem
+                ref={customMaterialSystemRef}
+                count={512}
+                config={customMaterialConfig}
+                behavior={swirlBehavior}
+                customMaterial={customMaterial}
             />
         </>
     );
