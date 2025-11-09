@@ -9,9 +9,6 @@ export * from './config';
 // Behavior classes
 export * from './behaviors';
 
-// Shader utilities
-export * from './shaders';
-
 // Re-export commonly used classes for convenience
 export {
     // Position configs
@@ -50,12 +47,8 @@ export {
     SwirlBehavior,
     AttractorBehavior,
     WaveBehavior,
-    ExplosionBehavior
+    ExplosionBehavior,
+    MagneticFieldBehavior,
+    SpringBehavior,
+    NoiseFieldBehavior
 } from './behaviors';
-
-export {
-    // Shader utilities
-    ShaderBuilder,
-    ShaderTemplates,
-    ShaderUtils
-} from './shaders';

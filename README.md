@@ -37,10 +37,9 @@ function MyScene() {
 
 ### Core Modules
 
-1. **Configuration Module** (`./config/`): Handles initial particle data
-2. **Behavior Module** (`./behaviors/`): Defines particle movement and interaction
-3. **Shader Module** (`./shaders/`): Provides shader utilities and templates
-4. **Main Component** (`ParticleSystem.tsx`): The main React component
+1. **Configuration Module** (`./config/`): Handles initial particle data (position, velocity, color, size)
+2. **Behavior Module** (`./behaviors/`): Defines particle movement and interaction using shader composition
+3. **Main Component** (`ParticleSystem.tsx`): The main React component that orchestrates everything
 
 ### Configuration Classes
 
@@ -101,100 +100,270 @@ class SpiralPositionConfig extends ParticlePositionConfig {
 }
 ```
 
-### Custom Behavior
+## Building a Particle System - Workflow
+
+### Step 1: Choose or Create Configurations
+
+Configurations define the **initial state** of particles (where they start, initial velocity, colors, sizes).
+
+**Using Built-in Configs:**
+```tsx
+import { 
+  RandomPositionConfig, 
+  ZeroVelocityConfig, 
+  GradientColorConfig,
+  UniformSizeConfig 
+} from './particle-system';
+
+const config = {
+  position: new RandomPositionConfig({ x: [-5, 5], y: [-5, 5], z: [-2, 2] }),
+  velocity: new ZeroVelocityConfig(),
+  color: new GradientColorConfig([1, 0, 0], [0, 1, 0]),
+  size: new UniformSizeConfig(1.0)
+};
+```
+
+**Creating Custom Config:**
+```tsx
+import { ParticlePositionConfig } from './particle-system';
+
+class SpiralPositionConfig extends ParticlePositionConfig {
+  constructor(
+    private radius: number = 2.0,
+    private height: number = 1.0,
+    private turns: number = 3.0
+  ) {
+    super();
+  }
+
+  generatePosition(index: number, totalCount: number, size: number): [number, number, number, number] {
+    const t = index / totalCount;
+    const angle = t * this.turns * Math.PI * 2;
+    const r = t * this.radius;
+    const x = Math.cos(angle) * r;
+    const y = t * this.height - this.height / 2;
+    const z = Math.sin(angle) * r;
+    return [x, y, z, 0.0];
+  }
+}
+```
+
+### Step 2: Choose or Create a Behavior
+
+Behaviors define **how particles move** over time using shader composition (much easier than writing full shaders!).
+
+**Using Built-in Behaviors:**
+```tsx
+import { GravityBehavior, SwirlBehavior } from './particle-system';
+
+const behavior = new GravityBehavior(-0.1, 0.995, 0.05);
+// Parameters: gravity, damping, turbulence
+```
+
+**Creating Custom Behavior (Modern Way - Recommended):**
 
 ```tsx
+import { ParticleBehavior } from './particle-system';
+
 class FireBehavior extends ParticleBehavior {
   getName(): string {
     return 'Fire';
   }
 
-  getPositionShader(): string {
+  // Override position update logic (optional - only if you need custom position behavior)
+  protected getPositionUpdateLogic(): string {
     return /*glsl*/ `
-      uniform float time;
-      uniform float delta;
-      uniform sampler2D positionTex;
-      uniform sampler2D velocityTex;
+      pos.xyz += vel.xyz * delta;
       
-      void main() {
-        vec2 uv = gl_FragCoord.xy / resolution.xy;
-        
-        vec4 pos = texture2D(positionTex, uv);
-        vec4 vel = texture2D(velocityTex, uv);
-        
-        pos.xyz += vel.xyz * delta;
-        
-        // Reset particles that go too high
-        if (pos.y > 5.0) {
-          pos.y = -5.0;
-          pos.x = (uv.x - 0.5) * 2.0;
-          pos.z = (uv.y - 0.5) * 2.0;
-        }
-        
-        pos.w = mod(pos.w + delta, 1.0);
-        
-        gl_FragColor = pos;
+      // Reset particles that go too high
+      if (pos.y > 5.0) {
+        pos.y = -5.0;
+        pos.x = (uv.x - 0.5) * 2.0;
+        pos.z = (uv.y - 0.5) * 2.0;
       }
     `;
   }
 
-  getVelocityShader(): string {
+  // Override velocity update logic (required for custom motion)
+  protected getVelocityUpdateLogic(): string {
     return /*glsl*/ `
-      uniform float time;
-      uniform float delta;
-      uniform sampler2D positionTex;
-      uniform sampler2D velocityTex;
+      // Fire-like upward motion with turbulence
+      vel.y += 0.1 * delta;
       
-      void main() {
-        vec2 uv = gl_FragCoord.xy / resolution.xy;
-        
-        vec4 vel = texture2D(velocityTex, uv);
-        vec4 pos = texture2D(positionTex, uv);
-        
-        // Fire-like upward motion with turbulence
-        vel.y += 0.1 * delta;
-        
-        // Add turbulence
-        float noise1 = sin(pos.x * 0.1 + time) * 0.05;
-        float noise2 = cos(pos.z * 0.1 + time * 0.7) * 0.05;
-        vel.x += noise1;
-        vel.z += noise2;
-        
-        // Damping
-        vel.xyz *= 0.98;
-        
-        gl_FragColor = vel;
-      }
+      // Add turbulence
+      float noise1 = sin(pos.x * 0.1 + time) * 0.05;
+      float noise2 = cos(pos.z * 0.1 + time * 0.7) * 0.05;
+      vel.x += noise1;
+      vel.z += noise2;
+      
+      // Damping
+      vel.xyz *= 0.98;
     `;
   }
 }
 ```
 
-## Shader Utilities
-
-### Using ShaderBuilder
+**Creating Behavior with Custom Uniforms:**
 
 ```tsx
-import { ShaderBuilder, ShaderTemplates } from './particle-system';
+import { ParticleBehavior } from './particle-system';
+import { useRef } from 'react';
+import { useFrame } from '@react-three/fiber';
 
-const customShader = new ShaderBuilder()
-  .setPositionShader(ShaderTemplates.gravity.position)
-  .setVelocityShader(ShaderTemplates.gravity.velocity)
-  .addUniform('gravity', -0.2)
-  .addUniform('damping', 0.99)
-  .build();
+class WaveBehavior extends ParticleBehavior {
+  public uniforms: Record<string, any>;
+
+  constructor(
+    private waveSpeed: number = 1.0,
+    private waveAmplitude: number = 0.5
+  ) {
+    super();
+    
+    // Store uniforms for dynamic updates
+    this.uniforms = {
+      waveSpeed: { value: this.waveSpeed },
+      waveAmplitude: { value: this.waveAmplitude }
+    };
+  }
+
+  getName(): string {
+    return 'Wave';
+  }
+
+  // Provide uniforms (automatically declared in shader)
+  getVelocityUniforms(): Record<string, any> {
+    return this.uniforms;
+  }
+
+  // Use uniforms in your logic
+  protected getVelocityUpdateLogic(): string {
+    return /*glsl*/ `
+      // Use custom uniforms - they're automatically declared!
+      float wave = sin(pos.x * waveSpeed + time) * waveAmplitude;
+      vel.y = wave;
+      vel.xyz *= 0.98;
+    `;
+  }
+}
+
+// Usage with dynamic uniform updates
+function MyComponent() {
+  const behaviorRef = useRef(new WaveBehavior(1.5, 0.8));
+
+  useFrame((state) => {
+    // Update uniforms dynamically
+    behaviorRef.current.uniforms.waveAmplitude.value = 
+      Math.sin(state.clock.elapsedTime) * 0.5 + 0.5;
+  });
+
+  return (
+    <ParticleSystem 
+      count={256} 
+      behavior={behaviorRef.current}
+    />
+  );
+}
 ```
 
-### Using Shader Templates
+### Step 3: Combine Everything
 
 ```tsx
-import { ShaderTemplates, ShaderUtils } from './particle-system';
+import { ParticleSystem } from './particle-system';
+import { useMemo } from 'react';
 
-// Use built-in template with customizations
-const customGravityShader = ShaderUtils.createCustomShader(
-  ShaderTemplates.gravity.velocity,
-  { gravity: -0.2, damping: 0.99 }
-);
+function MyScene() {
+  // Memoize config to prevent recreation
+  const config = useMemo(() => ({
+    position: new SpiralPositionConfig(2.0, 1.0, 3.0),
+    velocity: new ZeroVelocityConfig(),
+    color: new GradientColorConfig([1, 0, 0], [0, 1, 0]),
+    size: new UniformSizeConfig(1.0)
+  }), []);
+
+  // Memoize behavior
+  const behavior = useMemo(() => new FireBehavior(), []);
+
+  return (
+    <ParticleSystem
+      count={256}
+      config={config}
+      behavior={behavior}
+    />
+  );
+}
+```
+
+## Complete Example: Custom Behavior with Dynamic Uniforms
+
+```tsx
+import { ParticleBehavior } from './particle-system';
+import { useRef, useMemo } from 'react';
+import { useFrame } from '@react-three/fiber';
+import { ParticleSystem, RandomPositionConfig, ZeroVelocityConfig, GradientColorConfig, UniformSizeConfig } from './particle-system';
+
+// Custom behavior with dynamic uniforms
+class InteractiveBehavior extends ParticleBehavior {
+  public uniforms: Record<string, any>;
+
+  constructor() {
+    super();
+    this.uniforms = {
+      mouseX: { value: 0.0 },
+      mouseY: { value: 0.0 },
+      attractionStrength: { value: 0.1 }
+    };
+  }
+
+  getName(): string {
+    return 'Interactive';
+  }
+
+  getVelocityUniforms(): Record<string, any> {
+    return this.uniforms;
+  }
+
+  protected getVelocityUpdateLogic(): string {
+    return /*glsl*/ `
+      // Attract particles to mouse position
+      vec2 mousePos = vec2(mouseX, mouseY) * 10.0;
+      vec2 force = mousePos - pos.xy;
+      float dist = length(force);
+      
+      if (dist > 0.1) {
+        force = normalize(force) * attractionStrength / (dist + 0.1);
+        vel.xy += force * delta;
+      }
+      
+      vel.xyz *= 0.99;
+    `;
+  }
+}
+
+function InteractiveParticles() {
+  const behaviorRef = useRef(new InteractiveBehavior());
+  const config = useMemo(() => ({
+    position: new RandomPositionConfig({ x: [-5, 5], y: [-5, 5], z: [-2, 2] }),
+    velocity: new ZeroVelocityConfig(),
+    color: new GradientColorConfig([0, 1, 1], [1, 0, 1]),
+    size: new UniformSizeConfig(1.0)
+  }), []);
+
+  // Update mouse position from R3F state
+  useFrame((state) => {
+    const x = (state.mouse.x + 1) / 2;
+    const y = (state.mouse.y + 1) / 2;
+    behaviorRef.current.uniforms.mouseX.value = x;
+    behaviorRef.current.uniforms.mouseY.value = y;
+  });
+
+  return (
+    <ParticleSystem
+      count={256}
+      config={config}
+      behavior={behaviorRef.current}
+    />
+  );
+}
 ```
 
 ## Examples
@@ -286,11 +455,38 @@ abstract class ParticleSizeConfig {
 #### ParticleBehavior
 ```tsx
 abstract class ParticleBehavior {
-  abstract getPositionShader(): string;
-  abstract getVelocityShader(): string;
   abstract getName(): string;
+  
+  // Override these methods to customize behavior
+  protected getPositionUpdateLogic(): string;  // Returns GLSL code for position updates
+  protected getVelocityUpdateLogic(): string; // Returns GLSL code for velocity updates
+  
+  // Override for custom uniforms
+  getPositionUniforms(): Record<string, any>;
+  getVelocityUniforms(): Record<string, any>;
+  
+  // Override for custom boundaries
+  protected getBoundaryConfig(): BoundaryConfig;
+  
+  // These are automatically generated (don't override)
+  getPositionShader(): string;  // Complete position shader
+  getVelocityShader(): string; // Complete velocity shader
 }
 ```
+
+**Key Methods:**
+- `getVelocityUpdateLogic()`: Override to provide custom velocity update logic (GLSL code snippet)
+- `getPositionUpdateLogic()`: Override to provide custom position update logic (GLSL code snippet)
+- `getVelocityUniforms()`: Return uniforms object for velocity shader
+- `getPositionUniforms()`: Return uniforms object for position shader
+- `getBoundaryConfig()`: Define boundary behavior (wrap, bounce, none)
+
+**Available Variables in GLSL:**
+- `pos` - Current particle position (vec4: x, y, z, age)
+- `vel` - Current particle velocity (vec4)
+- `delta` - Time delta since last frame (float)
+- `time` - Total elapsed time (float)
+- `uv` - Texture coordinates (vec2)
 
 ## Performance Considerations
 
