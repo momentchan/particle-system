@@ -523,4 +523,4 @@ protected getBoundaryConfig(): BoundaryConfig {
 
 ## License
 
-MIT License - see LICENSE file for details.
+MIT License
