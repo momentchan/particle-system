@@ -4,13 +4,15 @@ A comprehensive, modular particle system library for React Three Fiber that allo
 
 ## Features
 
-- **Modular Architecture**: Well-organized modules for configurations and behaviors
+- **Modular Architecture**: Well-organized modules for configurations and behaviors with custom hooks
 - **Class-Based Customization**: Extend base classes to create custom particle configurations and behaviors
 - **Built-in Patterns**: Pre-built configurations and behaviors for common particle patterns
 - **Shader Composition**: Easy custom shader logic without writing full shaders
 - **TypeScript Support**: Full type safety and IntelliSense support
 - **Performance Optimized**: GPU-based particle simulation using WebGL
 - **Easy Integration**: Simple API that works seamlessly with React Three Fiber
+- **Custom Hooks**: Reusable hooks for GPGPU, geometry, and material management
+- **Flexible Rendering**: Support for both point-based and instanced mesh rendering
 
 ## Quick Start
 
@@ -286,6 +288,150 @@ function MyScene() {
 }
 ```
 
+### Step 4: Advanced Features
+
+#### Using Custom Material
+
+You can provide your own `THREE.ShaderMaterial` for complete control over rendering:
+
+```tsx
+import { ParticleSystem, ParticleSystemRef } from './particle-system';
+import { useRef, useMemo } from 'react';
+import { useFrame } from '@react-three/fiber';
+import * as THREE from 'three';
+
+function CustomMaterialExample() {
+  const systemRef = useRef<ParticleSystemRef>(null);
+
+  // Create custom material with glow effect
+  const customMaterial = useMemo(() => {
+    return new THREE.ShaderMaterial({
+      uniforms: {
+        positionTex: { value: null },
+        velocityTex: { value: null },
+        time: { value: 0.0 },
+        glowIntensity: { value: 2.0 }
+      },
+      vertexShader: /*glsl*/ `
+        uniform sampler2D positionTex;
+        uniform sampler2D velocityTex;
+        uniform float time;
+        
+        attribute float size;
+        
+        varying vec3 vColor;
+        varying vec3 vVelocity;
+        
+        void main() {
+          vec4 pos = texture2D(positionTex, uv);
+          vec4 vel = texture2D(velocityTex, uv);
+          
+          vColor = color;
+          vVelocity = vel.xyz;
+          
+          vec4 mvPosition = modelViewMatrix * vec4(pos.xyz, 1.0);
+          gl_PointSize = size * (300.0 / -mvPosition.z) * (1.0 + length(vel.xyz));
+          gl_Position = projectionMatrix * mvPosition;
+        }
+      `,
+      fragmentShader: /*glsl*/ `
+        uniform float time;
+        uniform float glowIntensity;
+        
+        varying vec3 vColor;
+        varying vec3 vVelocity;
+        
+        void main() {
+          vec2 center = gl_PointCoord - vec2(0.5);
+          float dist = length(center);
+          float alpha = 1.0 - smoothstep(0.0, 0.5, dist);
+          
+          // Add glow effect based on velocity
+          float glow = length(vVelocity) * glowIntensity;
+          vec3 finalColor = vColor + vec3(glow);
+          
+          gl_FragColor = vec4(finalColor, alpha);
+        }
+      `,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      vertexColors: true
+    });
+  }, []);
+
+  // Update material uniforms with particle textures
+  useFrame((state) => {
+    if (systemRef.current && customMaterial) {
+      const positionTex = systemRef.current.getParticleTexture();
+      const velocityTex = systemRef.current.getVelocityTexture();
+      
+      if (positionTex) customMaterial.uniforms.positionTex.value = positionTex;
+      if (velocityTex) customMaterial.uniforms.velocityTex.value = velocityTex;
+      customMaterial.uniforms.time.value = state.clock.elapsedTime;
+    }
+  });
+
+  return (
+    <ParticleSystem
+      ref={systemRef}
+      count={512}
+      config={myConfig}
+      behavior={myBehavior}
+      customMaterial={customMaterial}
+    />
+  );
+}
+```
+
+**Important**: When using `customMaterial`, you must:
+- Declare `positionTex` and `velocityTex` as `sampler2D` uniforms
+- Sample these textures in your vertex shader using `texture2D(positionTex, uv)`
+- Update these uniforms manually using the `ParticleSystemRef` (see example above)
+- The `size`, `opacity`, and `transparent` props are ignored when using `customMaterial`
+
+#### Using Instanced Mesh
+
+Render particles as instanced meshes instead of points for more complex shapes:
+
+```tsx
+import { ParticleSystem } from './particle-system';
+import { useMemo } from 'react';
+import * as THREE from 'three';
+
+function InstancedMeshExample() {
+  // Create geometry for each instance
+  const instanceGeometry = useMemo(() => {
+    return new THREE.BoxGeometry(0.1, 0.1, 0.1);
+    // Or use any other geometry:
+    // return new THREE.SphereGeometry(0.05, 8, 8);
+    // return new THREE.TorusGeometry(0.05, 0.02, 8, 16);
+  }, []);
+
+  const config = useMemo(() => ({
+    position: new RandomPositionConfig({ x: [-3, 3], y: [-3, 3], z: [-2, 2] }),
+    velocity: new ZeroVelocityConfig(),
+    color: new GradientColorConfig([0.5, 0.8, 1], [1, 0.5, 0.8]),
+    size: new UniformSizeConfig(1)
+  }), []);
+
+  return (
+    <ParticleSystem
+      count={256}
+      config={config}
+      behavior={new SwirlBehavior(0.5, 0.8)}
+      meshType="instanced"
+      instanceGeometry={instanceGeometry}
+    />
+  );
+}
+```
+
+**Key Points**:
+- Set `meshType="instanced"` to enable instanced rendering
+- Provide `instanceGeometry` with the shape you want for each particle
+- Positions are automatically applied per-instance via the shader
+- The instanced shader uses `gl_InstanceID` to sample particle data from textures
+
 ### Complete Example: Interactive Particles
 
 ```tsx
@@ -425,8 +571,17 @@ function App() {
 | `count` | `number` | `1024` | Number of particles |
 | `config` | `ParticleSystemConfig` | `undefined` | Initial data configuration |
 | `behavior` | `ParticleBehavior` | `DefaultBehavior` | Particle behavior |
-| `positionShader` | `string` | `undefined` | Custom position shader (legacy) |
-| `velocityShader` | `string` | `undefined` | Custom velocity shader (legacy) |
+| `customMaterial` | `THREE.Material \| null` | `undefined` | Custom material for rendering (overrides default) |
+| `positionShader` | `string` | `undefined` | Custom position shader (overrides behavior shader) |
+| `velocityShader` | `string` | `undefined` | Custom velocity shader (overrides behavior shader) |
+| `update` | `boolean` | `true` | Whether to update particles each frame |
+| `meshType` | `'points' \| 'instanced'` | `'points'` | Rendering mode: points or instanced mesh |
+| `instanceGeometry` | `THREE.BufferGeometry \| null` | `undefined` | Geometry for instanced mesh (required if `meshType='instanced'`) |
+| `size` | `number` | `0.1` | Particle size multiplier (only used if not using `customMaterial`) |
+| `opacity` | `number` | `0.8` | Particle opacity (only used if not using `customMaterial`) |
+| `transparent` | `boolean` | `true` | Whether material is transparent (only used if not using `customMaterial`) |
+
+**Note**: The `size`, `opacity`, and `transparent` props are only used when not providing a `customMaterial`. If you use `customMaterial`, you should manage these properties yourself.
 
 ### ParticleSystemConfig Interface
 
@@ -532,12 +687,71 @@ protected getBoundaryConfig(): BoundaryConfig {
 - `THREE.Color` or `{r, g, b}` → `vec3`
 - `THREE.Texture` (any texture type) → `sampler2D`
 
+## Custom Hooks
+
+The library provides custom hooks for advanced use cases:
+
+### `useParticleGPGPU`
+
+Manages GPGPU computation for particle simulation.
+
+```tsx
+import { useParticleGPGPU } from './particle-system/hooks';
+
+const {
+  gpgpu,
+  timeRef,
+  updateUniforms,
+  reset,
+  getParticleTexture,
+  getVelocityTexture
+} = useParticleGPGPU({
+  count: 256,
+  config: myConfig,
+  behavior: myBehavior,
+  positionShader: customPositionShader,
+  velocityShader: customVelocityShader
+});
+```
+
+### `useParticleGeometry`
+
+Manages geometry creation for points and instanced meshes.
+
+```tsx
+import { useParticleGeometry } from './particle-system/hooks';
+
+const { pointsGeometry, instancedGeo } = useParticleGeometry({
+  count: 256,
+  config: myConfig,
+  meshType: 'points',
+  instanceGeometry: customGeometry
+});
+```
+
+### `useParticleMaterial`
+
+Creates and manages the default shader material.
+
+```tsx
+import { useParticleMaterial } from './particle-system/hooks';
+
+const material = useParticleMaterial({
+  meshType: 'points',
+  count: 256,
+  size: 0.1,
+  opacity: 0.8,
+  transparent: true
+});
+```
+
 ## Performance Considerations
 
 - **Particle Count**: Higher particle counts require more GPU memory and processing power
 - **Shader Complexity**: Complex shaders can impact performance
 - **Update Frequency**: The system updates at 60fps by default
 - **Memory Usage**: Each particle uses 4 floats for position and 4 floats for velocity
+- **Hook Optimization**: Custom hooks are memoized to prevent unnecessary recalculations
 
 ## Browser Support
 
