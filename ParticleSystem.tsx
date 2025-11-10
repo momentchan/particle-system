@@ -51,6 +51,7 @@ const ParticleSystem = forwardRef<ParticleSystemRef, ParticleSystemProps>(({
 }, ref) => {
     const pointsRef = useRef<THREE.Points>(null);
     const instancedMeshRef = useRef<THREE.InstancedMesh>(null);
+    const gpgpuInitializedRef = useRef(false);
 
     const finalBehavior = useMemo(() => behavior || new DefaultBehavior(), [behavior]);
     
@@ -94,21 +95,83 @@ const ParticleSystem = forwardRef<ParticleSystemRef, ParticleSystemProps>(({
 
 
     useEffect(() => {
+        // Reset initialization flag when GPGPU changes
+        gpgpuInitializedRef.current = false;
+        
+        // Initialize GPGPU and set textures immediately
+        if (gpgpu && update) {
+            // Use requestAnimationFrame to ensure WebGL context is ready
+            const frameId = requestAnimationFrame(() => {
+                if (gpgpu.getVariable('positionTex') && gpgpu.getVariable('velocityTex')) {
+                    // Set initial uniforms
+                    gpgpu.setUniform('positionTex', 'time', 0);
+                    gpgpu.setUniform('velocityTex', 'time', 0);
+                    gpgpu.setUniform('positionTex', 'delta', 0);
+                    gpgpu.setUniform('velocityTex', 'delta', 0);
+                    
+                    const positionUniforms = finalBehavior.getPositionUniforms();
+                    const velocityUniforms = finalBehavior.getVelocityUniforms();
+                    
+                    updateUniforms(positionUniforms, 'positionTex', 'position');
+                    updateUniforms(velocityUniforms, 'velocityTex', 'velocity');
+                    
+                    // Get textures immediately (init() already rendered initial data)
+                    const positionTex = gpgpu.getCurrentRenderTarget('positionTex');
+                    const velocityTex = gpgpu.getCurrentRenderTarget('velocityTex');
+                    
+                    if (positionTex && velocityTex) {
+                        const currentMaterial = customMaterial || material;
+                        if (currentMaterial && 'uniforms' in currentMaterial && currentMaterial.uniforms) {
+                            const uniforms = currentMaterial.uniforms as Record<string, { value: any }>;
+                            if (uniforms.positionTex) uniforms.positionTex.value = positionTex;
+                            if (uniforms.velocityTex) uniforms.velocityTex.value = velocityTex;
+                        }
+                    }
+                    
+                    gpgpuInitializedRef.current = true;
+                }
+            });
+            
+            return () => {
+                cancelAnimationFrame(frameId);
+            };
+        }
+        
         return () => {
             gpgpu?.dispose();
             pointsGeometry?.dispose();
             instancedGeo?.dispose();
             material?.dispose();
         };
-    }, [gpgpu, pointsGeometry, instancedGeo, material]);
+    }, [gpgpu, pointsGeometry, instancedGeo, material, customMaterial, update, finalBehavior, updateUniforms]);
 
     useFrame((state, delta) => {
         if (!gpgpu || !update) return;
 
         // Check if GPGPU variables are initialized
-        if (!gpgpu.getVariable('positionTex') || !gpgpu.getVariable('velocityTex')) {
+        const positionVar = gpgpu.getVariable('positionTex');
+        const velocityVar = gpgpu.getVariable('velocityTex');
+        
+        if (!positionVar || !velocityVar) {
             return;
         }
+        
+        // Ensure textures are set on first frame
+        if (!gpgpuInitializedRef.current) {
+            const positionTex = gpgpu.getCurrentRenderTarget('positionTex');
+            const velocityTex = gpgpu.getCurrentRenderTarget('velocityTex');
+            
+            if (positionTex && velocityTex) {
+                const currentMaterial = customMaterial || material;
+                if (currentMaterial && 'uniforms' in currentMaterial && currentMaterial.uniforms) {
+                    const uniforms = currentMaterial.uniforms as Record<string, { value: any }>;
+                    if (uniforms.positionTex) uniforms.positionTex.value = positionTex;
+                    if (uniforms.velocityTex) uniforms.velocityTex.value = velocityTex;
+                }
+                gpgpuInitializedRef.current = true;
+            }
+        }
+
 
         const dt = Math.min(delta, MAX_DELTA_TIME);
         const t = timeRef.current;
@@ -132,12 +195,14 @@ const ParticleSystem = forwardRef<ParticleSystemRef, ParticleSystemProps>(({
 
         if (positionTex && velocityTex) {
             const currentMaterial = customMaterial || material;
-            if (currentMaterial instanceof THREE.ShaderMaterial) {
-                currentMaterial.uniforms.positionTex.value = positionTex;
-                currentMaterial.uniforms.velocityTex.value = velocityTex;
-                currentMaterial.uniforms.time.value = state.clock.elapsedTime;
-                if (meshType === 'instanced' && 'instanceCount' in currentMaterial.uniforms) {
-                    currentMaterial.uniforms.instanceCount.value = count;
+            // Check if material has uniforms property (works for ShaderMaterial and CSM)
+            if (currentMaterial && 'uniforms' in currentMaterial && currentMaterial.uniforms) {
+                const uniforms = currentMaterial.uniforms as Record<string, { value: any }>;
+                if (uniforms.positionTex) uniforms.positionTex.value = positionTex;
+                if (uniforms.velocityTex) uniforms.velocityTex.value = velocityTex;
+                if (uniforms.time) uniforms.time.value = state.clock.elapsedTime;
+                if (meshType === 'instanced' && uniforms.instanceCount) {
+                    uniforms.instanceCount.value = count;
                 }
             }
         }
@@ -147,7 +212,7 @@ const ParticleSystem = forwardRef<ParticleSystemRef, ParticleSystemProps>(({
         getParticleTexture,
         getVelocityTexture,
         reset: resetGPGPU
-    }), [getParticleTexture, getVelocityTexture, resetGPGPU]);
+    }), [getParticleTexture, getVelocityTexture]);
 
     // Initialize instance matrices to identity (Three.js creates instanceMatrix automatically)
     useEffect(() => {

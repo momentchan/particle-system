@@ -6,7 +6,7 @@ import { useFrame } from '@react-three/fiber';
 import {
     ParticleSystem,
     ParticleBehavior,
-    RandomPositionConfig,
+    RandomBoxPositionConfig,
     ZeroVelocityConfig,
     GradientColorConfig,
     UniformSizeConfig,
@@ -63,14 +63,14 @@ export default function AdvancedExamples() {
     const customUniformBehaviorRef = useRef<CustomUniformBehavior>(new CustomUniformBehavior(1.5, 0.8, 0.0));
 
     const customUniformConfig = useMemo(() => ({
-        position: new RandomPositionConfig({ x: [-4, 4], y: [-4, 4], z: [-2, 2] }),
+        position: new RandomBoxPositionConfig({ x: [-4, 4], y: [-4, 4], z: [-2, 2] }),
         velocity: new ZeroVelocityConfig(),
         color: new GradientColorConfig([0.2, 0.5, 1], [1, 0.3, 0.5]),
         size: new UniformSizeConfig(1)
     }), []);
 
     const customMaterialConfig = useMemo(() => ({
-        position: new RandomPositionConfig({ x: [-4, 4], y: [-4, 4], z: [-2, 2] }),
+        position: new RandomBoxPositionConfig({ x: [-4, 4], y: [-4, 4], z: [-2, 2] }),
         velocity: new ZeroVelocityConfig(),
         color: new GradientColorConfig([0.2, 0.5, 1], [1, 0.3, 0.5]),
         size: new UniformSizeConfig(1.5)
@@ -201,7 +201,7 @@ export default function AdvancedExamples() {
 // Instanced mesh particles example
 function InstancedMeshExample() {
     const instancedConfig = useMemo(() => ({
-        position: new RandomPositionConfig({ x: [-3, 3], y: [-3, 3], z: [-2, 2] }),
+        position: new RandomBoxPositionConfig({ x: [-3, 3], y: [-3, 3], z: [-2, 2] }),
         velocity: new ZeroVelocityConfig(),
         color: new GradientColorConfig([0.5, 0.8, 1], [1, 0.5, 0.8]),
         size: new UniformSizeConfig(1)

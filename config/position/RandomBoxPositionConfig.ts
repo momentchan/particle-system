@@ -1,6 +1,6 @@
 import { ParticlePositionConfig } from '../base';
 
-export class RandomPositionConfig extends ParticlePositionConfig {
+export class RandomBoxPositionConfig extends ParticlePositionConfig {
     constructor(
         private bounds: { x: [number, number]; y: [number, number]; z: [number, number] } = { x: [-1, 1], y: [-1, 1], z: [0, 0] }
     ) {

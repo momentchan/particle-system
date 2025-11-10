@@ -13,14 +13,16 @@ export * from './behaviors';
 export {
     // Position configs
     GridPositionConfig,
-    RandomPositionConfig,
+    RandomBoxPositionConfig,
     SpherePositionConfig,
+    RandomSpherePositionConfig,
     CubePositionConfig,
     
     // Velocity configs
     ZeroVelocityConfig,
     RandomVelocityConfig,
     RadialVelocityConfig,
+    RadialVelocityConfig3D,
     TangentialVelocityConfig,
     
     // Color configs

@@ -21,14 +21,16 @@ export interface ParticleSystemConfig {
 
 // Re-export position configs
 export { GridPositionConfig } from './position/GridPositionConfig';
-export { RandomPositionConfig } from './position/RandomPositionConfig';
+export { RandomBoxPositionConfig } from './position/RandomBoxPositionConfig';
 export { SpherePositionConfig } from './position/SpherePositionConfig';
+export { RandomSpherePositionConfig } from './position/RandomSpherePositionConfig';
 export { CubePositionConfig } from './position/CubePositionConfig';
 
 // Re-export velocity configs
 export { ZeroVelocityConfig } from './velocity/ZeroVelocityConfig';
 export { RandomVelocityConfig } from './velocity/RandomVelocityConfig';
 export { RadialVelocityConfig } from './velocity/RadialVelocityConfig';
+export { RadialVelocityConfig3D } from './velocity/RadialVelocityConfig3D';
 export { TangentialVelocityConfig } from './velocity/TangentialVelocityConfig';
 
 // Re-export color configs

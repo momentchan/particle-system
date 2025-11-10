@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import {
     ParticleSystem,
     GridPositionConfig,
-    RandomPositionConfig,
+    RandomBoxPositionConfig,
     ZeroVelocityConfig,
     UniformColorConfig,
     GradientColorConfig,
@@ -24,7 +24,7 @@ export default function BasicExamples() {
     }), []);
 
     const swirlConfig = useMemo(() => ({
-        position: new RandomPositionConfig({ x: [-3, 3], y: [-3, 3], z: [-1, 1] }),
+        position: new RandomBoxPositionConfig({ x: [-3, 3], y: [-3, 3], z: [-1, 1] }),
         velocity: new ZeroVelocityConfig(),
         color: new GradientColorConfig([0, 1, 1], [1, 0, 1]),
         size: new RandomSizeConfig([0.5, 2])
